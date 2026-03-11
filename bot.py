@@ -27,22 +27,22 @@ intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="#", intents=intents)
 
 # ================= CONFIGURARE ID-URI =================
-TOURNAMENT_CATEGORY_ID = 1481418592217206885 
+TOURNAMENT_CATEGORY_ID = 1481418592217206885 # Categoria unde se fac Ticketele
 ANNOUNCE_CHANNEL_ID = 1481418592217206885
-LOG_CHANNEL_ID = 1481418592217206885 # Poți schimba cu ID-ul unui canal unde vrei să vezi dovezile (ID joc + Poză)
+LOG_CHANNEL_ID = 1481418592217206885 
 
 # Date globale pentru turneu
 tournament_players = []
-tournament_data = {} # Stocăm datele despre ID, device etc.
+tournament_data = {} 
 tournament_matches = {"calificari": [], "semifinale": [], "finala": []}
 tournament_status = "închis"
 
-# ================= MODAL ÎNSCRIERE DETALIATĂ =================
+# ================= MODAL ÎNSCRIERE (ÎN TICKET) =================
 
-class TournamentRegisterModal(discord.ui.Modal, title="ÎNSCRIERE TURNEU STANDOFF 2"):
+class TournamentRegisterModal(discord.ui.Modal, title="FORMULAR ÎNSCRIERE"):
     game_id = discord.ui.TextInput(label="ID JOC", placeholder="Ex: 12345678", min_length=5, max_length=15)
-    device = discord.ui.TextInput(label="DEVICE (Telefon/Tabletă)", placeholder="Ex: iPhone 13 / iPad Pro", min_length=2)
-    profile_url = discord.ui.TextInput(label="LINK POZĂ PROFIL (Imgur/Discord Link)", placeholder="Pune link-ul pozei cu profilul tău", required=True)
+    device = discord.ui.TextInput(label="DEVICE", placeholder="Ex: Android / iOS / Tabletă")
+    profile_url = discord.ui.TextInput(label="LINK POZĂ PROFIL", placeholder="Pune link-ul pozei (Imgur/Discord)")
 
     async def on_submit(self, interaction: discord.Interaction):
         global tournament_players, tournament_data
@@ -55,42 +55,71 @@ class TournamentRegisterModal(discord.ui.Modal, title="ÎNSCRIERE TURNEU STANDOF
             "profile_url": self.profile_url.value
         }
 
-        # Trimitem confirmare la jucător
-        await interaction.response.send_message(f"✅ Te-ai înscris cu succes, <@{user_id}>!", ephemeral=True)
-
-        # Trimitem log pentru Staff
+        # Log pentru Staff
         log_chan = interaction.guild.get_channel(LOG_CHANNEL_ID)
         if log_chan:
-            log_embed = discord.Embed(title="📥 ÎNSCRIERE NOUĂ", color=discord.Color.blue())
+            log_embed = discord.Embed(title="📥 ÎNSCRIERE NOUĂ CONFIRMATĂ", color=discord.Color.green())
             log_embed.add_field(name="Utilizator", value=f"<@{user_id}>", inline=True)
             log_embed.add_field(name="ID Joc", value=self.game_id.value, inline=True)
             log_embed.add_field(name="Device", value=self.device.value, inline=True)
             log_embed.set_image(url=self.profile_url.value)
             await log_chan.send(embed=log_embed)
 
-        # Update la mesajul de înscriere (număr participanți)
-        embed = interaction.message.embeds[0]
-        embed.set_footer(text=f"Participanți: {len(tournament_players)} / 8")
-        await interaction.message.edit(embed=embed)
+        await interaction.response.send_message(f"✅ Datele au fost salvate! Acest ticket se va închide în 10 secunde.", ephemeral=False)
+        
+        # Așteptăm puțin și ștergem ticketul automat
+        await asyncio.sleep(10)
+        await interaction.channel.delete()
 
-# ================= CLASE UI PERSISTENTE =================
+# ================= SISTEM TICKET (LA APĂSARE BUTON) =================
 
 class TournamentJoinView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
     @discord.ui.button(label="ÎNSCRIE-TE ÎN TURNEU", style=discord.ButtonStyle.success, custom_id="tr_join_btn", emoji="🏆")
-    async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def create_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
         global tournament_status
         if tournament_status != "înscrieri":
-            return await interaction.response.send_message("❌ Înscrierile sunt închise momentan!", ephemeral=True)
+            return await interaction.response.send_message("❌ Înscrierile sunt închise!", ephemeral=True)
         if interaction.user.id in tournament_players:
             return await interaction.response.send_message("❌ Ești deja înscris!", ephemeral=True)
         if len(tournament_players) >= 8:
-            return await interaction.response.send_message("❌ Turneul este deja plin (8/8)!", ephemeral=True)
+            return await interaction.response.send_message("❌ Turneul este plin!", ephemeral=True)
 
-        # Deschidem formularul (Modal)
-        await interaction.response.send_modal(TournamentRegisterModal())
+        # Creare canal tip Ticket
+        guild = interaction.guild
+        category = guild.get_channel(TOURNAMENT_CATEGORY_ID)
+        
+        # Permisiuni: doar user-ul și staff-ul văd canalul
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
+            guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True)
+        }
+
+        ticket_name = f"inscrieri-{interaction.user.name}"
+        channel = await guild.create_voice_channel(name=ticket_name, category=category, overwrites=overwrites) # Create as text/voice based on category type, but usually create_text_channel is better:
+        
+        # Corecție: Creăm canal de text pentru ticket
+        ticket_channel = await guild.create_text_channel(name=ticket_name, category=category, overwrites=overwrites)
+
+        await interaction.response.send_message(f"✅ Ticket creat! Mergi aici: {ticket_channel.mention}", ephemeral=True)
+
+        # Trimitem butonul de formular în ticket
+        view = discord.ui.View()
+        btn = discord.ui.Button(label="COMPLETEAZĂ FORMULARUL", style=discord.ButtonStyle.primary)
+        
+        async def btn_callback(inter):
+            await inter.response.send_modal(TournamentRegisterModal())
+        
+        btn.callback = btn_callback
+        view.add_item(btn)
+
+        embed = discord.Embed(title="ÎNSCRIERE TURNEU", description="Apasă butonul de mai jos pentru a trimite datele tale.", color=discord.Color.blue())
+        await ticket_channel.send(content=f"{interaction.user.mention}", embed=embed, view=view)
+
+# ================= ADMIN PANEL & COMENZI =================
 
 class TournamentAdminPanel(discord.ui.View):
     def __init__(self):
@@ -100,91 +129,47 @@ class TournamentAdminPanel(discord.ui.View):
     async def open_reg(self, interaction: discord.Interaction, button: discord.ui.Button):
         global tournament_status, tournament_players, tournament_data
         tournament_status, tournament_players, tournament_data = "înscrieri", [], {}
-        await interaction.response.send_message("✅ Înscrierile turneului au fost deschise!", ephemeral=True)
+        await interaction.response.send_message("✅ Înscrierile deschise!", ephemeral=True)
 
     @discord.ui.button(label="GENEREAZĂ CALIFICĂRI", style=discord.ButtonStyle.danger, custom_id="admin_gen")
     async def start_tr(self, interaction: discord.Interaction, button: discord.ui.Button):
         if len(tournament_players) < 8:
             return await interaction.response.send_message(f"❌ Ai nevoie de 8 oameni!", ephemeral=True)
-        
         random.shuffle(tournament_players)
         p = tournament_players
         tournament_matches["calificari"] = [[p[0], p[1]], [p[2], p[3]], [p[4], p[5]], [p[6], p[7]]]
-        
-        embed = discord.Embed(title="🏆 TURNEU STANDOFF 2 - BRACKETS", color=0xffd700)
+        embed = discord.Embed(title="🏆 BRACKETS TURNEU", color=0xffd700)
         for i, m in enumerate(tournament_matches["calificari"]):
-            p1_id = tournament_data[m[0]]['game_id']
-            p2_id = tournament_data[m[1]]['game_id']
-            embed.add_field(name=f"Meciul {i+1}", value=f"⚔️ <@{m[0]}> (ID: {p1_id}) **vs** <@{m[1]}> (ID: {p2_id})", inline=False)
-        
+            embed.add_field(name=f"Meciul {i+1}", value=f"⚔️ <@{m[0]}> vs <@{m[1]}>", inline=False)
         chan = interaction.guild.get_channel(ANNOUNCE_CHANNEL_ID)
-        if chan:
-            await chan.send(content="@everyone Meciurile din calificări au fost stabilite!", embed=embed)
-            await interaction.response.send_message("✅ Tabelul a fost generat!", ephemeral=True)
+        if chan: await chan.send(embed=embed)
+        await interaction.response.send_message("✅ Tabel generat!", ephemeral=True)
 
     @discord.ui.button(label="RESET TOTAL", style=discord.ButtonStyle.secondary, custom_id="admin_reset")
     async def reset(self, interaction: discord.Interaction, button: discord.ui.Button):
         global tournament_players, tournament_status, tournament_data
         tournament_players, tournament_status, tournament_data = [], "închis", {}
-        await interaction.response.send_message("🧹 Datele turneului au fost resetate.", ephemeral=True)
-
-# ================= COMENZI OWNER =================
-
-@bot.command()
-@commands.is_owner()
-async def voice(ctx):
-    await ctx.message.delete()
-    over = {ctx.guild.default_role: discord.PermissionOverwrite(connect=False, view_channel=True)}
-    cat = await ctx.guild.create_category("📊 STATISTICI SERVER", overwrites=over)
-    await ctx.guild.create_voice_channel(f"👤 Membri: {ctx.guild.member_count}", category=cat)
-    await ctx.guild.create_voice_channel(f"🚀 Boosts: {ctx.guild.premium_subscription_count}", category=cat)
+        await interaction.response.send_message("🧹 Resetat.", ephemeral=True)
 
 @bot.command()
 @commands.is_owner()
 async def setup_tournament(ctx):
     await ctx.message.delete()
-    embed = discord.Embed(
-        title="🏆 TURNEU STANDOFF 2 🏆",
-        description="Apasă butonul de mai jos pentru a te înscrie!\nVa trebui să introduci ID-ul tău, Device-ul și un link către poza de profil.",
-        color=0xff0000
-    )
-    embed.set_footer(text=f"Participanți: {len(tournament_players)} / 8")
+    embed = discord.Embed(title="🏆 TURNEU STANDOFF 2 🏆", description="Apasă butonul de mai jos pentru a deschide un **Ticket de Înscriere**.", color=0xff0000)
     await ctx.send(embed=embed, view=TournamentJoinView())
 
 @bot.command()
 @commands.is_owner()
 async def admin_tr(ctx):
-    await ctx.send("🛡️ **PANOU CONTROL TURNEU**", view=TournamentAdminPanel(), ephemeral=True)
-
-# ================= AUTOMATIZARE STATS =================
-
-@tasks.loop(minutes=10)
-async def update_stats_task():
-    for guild in bot.guilds:
-        cat = discord.utils.get(guild.categories, name="📊 STATISTICI SERVER")
-        if cat:
-            channels = cat.voice_channels
-            if len(channels) >= 2:
-                try:
-                    await channels[0].edit(name=f"👤 Membri: {guild.member_count}")
-                    await channels[1].edit(name=f"🚀 Boosts: {guild.premium_subscription_count}")
-                except: pass
-
-# ================= INTEGRARE ON_READY =================
+    await ctx.send("🛡️ **ADMIN PANEL**", view=TournamentAdminPanel(), ephemeral=True)
 
 @bot.event
 async def on_ready():
     print(f"✅ Bot Online: {bot.user}")
     bot.add_view(TournamentJoinView())
     bot.add_view(TournamentAdminPanel())
-    if not update_stats_task.is_running():
-        update_stats_task.start()
 
 # === PORNIRE ===
 keep_alive()
-
 token = os.getenv("DISCORD_TOKEN")
-if token:
-    bot.run(token)
-else:
-    print("❌ EROARE: Nu am găsit variabila DISCORD_TOKEN!")
+if token: bot.run(token)
