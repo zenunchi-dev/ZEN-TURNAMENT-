@@ -6,7 +6,7 @@ import random
 import asyncio
 import os
 
-# === SERVER PENTRU RENDER (KEEP ALIVE) ===
+# === SERVER PENTRU RENDER ===
 app = Flask('')
 @app.route('/')
 def home(): return "Online"
@@ -22,16 +22,41 @@ def keep_alive():
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="#", intents=intents)
 
-# ID-URILE TALE
+# ID-URI REVIZUITE
 TOURNAMENT_CATEGORY_ID = 1481418592217206885
 LOG_CHANNEL_ID = 1481418592217206885
-TABEL_MECIURI_CH_ID = 1481430801131376640 # Canal progres meciuri
+TABEL_MECIURI_CH_ID = 1481418744956850392 
+STAFF_ROLE_ID = 1481436643603906600       # Staff general
+SPECIAL_USER_ID = 810609759324471306     # Utilizator cu acces special la ticket
 
+# State Turneu
 tournament_players = []
+banned_players = [] # Jucătorii care au pierdut (nu se mai pot înscrie)
 tournament_data = {} 
+tournament_matches = []
 tournament_status = "închis"
 
-# ================= SISTEM ÎNSCRIERE PRIN TICKET (CU POZĂ/SS DIRECT) =================
+# ================= BUTON CLOSE TICKET =================
+
+class TicketControlView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="ÎNCHIDE TICKET", style=discord.ButtonStyle.danger, custom_id="close_ticket_btn", emoji="🔒")
+    async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Verificare permisiuni: Doar Staff sau ID-ul Special
+        is_staff = any(role.id == STAFF_ROLE_ID for role in interaction.user.roles)
+        is_special = interaction.user.id == SPECIAL_USER_ID
+        is_owner = interaction.user.id == interaction.guild.owner_id
+
+        if is_staff or is_special or is_owner:
+            await interaction.response.send_message("🔒 Ticketul se va închide în 5 secunde...")
+            await asyncio.sleep(5)
+            await interaction.channel.delete()
+        else:
+            await interaction.response.send_message("❌ Nu ai permisiunea de a închide acest ticket!", ephemeral=True)
+
+# ================= SISTEM ÎNSCRIERE =================
 
 class TournamentJoinView(discord.ui.View):
     def __init__(self):
@@ -42,14 +67,13 @@ class TournamentJoinView(discord.ui.View):
         global tournament_status
         if tournament_status != "înscrieri":
             return await interaction.response.send_message("❌ Înscrierile sunt închise!", ephemeral=True)
+        if interaction.user.id in banned_players:
+            return await interaction.response.send_message("❌ Ai pierdut deja și nu te mai poți înscrie!", ephemeral=True)
         if interaction.user.id in tournament_players:
             return await interaction.response.send_message("❌ Ești deja înscris!", ephemeral=True)
-        if len(tournament_players) >= 8:
-            return await interaction.response.send_message("❌ Turneul este plin!", ephemeral=True)
 
         guild = interaction.guild
         category = guild.get_channel(TOURNAMENT_CATEGORY_ID)
-        
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(view_channel=False),
             interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True, attach_files=True),
@@ -57,117 +81,87 @@ class TournamentJoinView(discord.ui.View):
         }
 
         ticket_channel = await guild.create_text_channel(name=f"înscriere-{interaction.user.name}", category=category, overwrites=overwrites)
-        await interaction.response.send_message(f"✅ Ticket creat! Mergi aici: {ticket_channel.mention}", ephemeral=True)
-
-        await ticket_channel.send(f"Salut {interaction.user.mention}!\n\n**Te rog să trimiți într-un singur mesaj:**\n1. ID-ul tău de joc\n2. Device-ul tău\n3. **ATAȘEAZĂ POZA/SS CU PROFILUL TĂU SO2**")
+        await interaction.response.send_message(f"✅ Ticket creat! {ticket_channel.mention}", ephemeral=True)
+        
+        # Trimitem instrucțiunile și butonul de Close
+        await ticket_channel.send(
+            content=f"Salut {interaction.user.mention}! Trimite ID, Device și Poza Profil SO2 aici.\n\n*Butonul de mai jos este doar pentru Staff:*",
+            view=TicketControlView()
+        )
 
         def check(m):
             return m.author == interaction.user and m.channel == ticket_channel and len(m.attachments) > 0
 
         try:
-            msg = await bot.wait_for("message", check=check, timeout=300)
-            
-            # Salvăm datele (Numele de pe Discord)
+            msg = await bot.wait_for("message", check=check, timeout=600)
             tournament_players.append(interaction.user.id)
-            tournament_data[interaction.user.id] = {
-                "user_name": interaction.user.display_name,
-                "details": msg.content
-            }
+            tournament_data[interaction.user.id] = {"user_name": interaction.user.display_name}
 
-            # Trimitem log-ul cu poza atașată direct
             log_chan = bot.get_channel(LOG_CHANNEL_ID)
             if log_chan:
-                embed = discord.Embed(title="📥 ÎNSCRIERE NOUĂ SO2", color=discord.Color.green())
+                embed = discord.Embed(title="📥 ÎNSCRIERE NOUĂ", color=discord.Color.green())
                 embed.add_field(name="Jucător", value=interaction.user.mention)
-                embed.add_field(name="Detalii", value=msg.content if msg.content else "Doar poză")
                 embed.set_image(url=msg.attachments[0].url)
                 await log_chan.send(embed=embed)
 
-            await ticket_channel.send("✅ Înscriere finalizată cu succes! Ticket-ul se va închide în 10 secunde.")
-            await asyncio.sleep(10)
-            await ticket_channel.delete()
-
+            await ticket_channel.send("✅ Date salvate! Staff-ul va închide ticketul după verificare.")
         except asyncio.TimeoutError:
-            await ticket_channel.send("❌ Timp expirat. Ticket-ul se va închide.")
-            await asyncio.sleep(5)
             await ticket_channel.delete()
 
-# ================= ADMIN PANEL & PROGRES TABEL =================
+# ================= COMENZI STAFF (#win / #lose) =================
 
-class TournamentAdminPanel(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-
-    @discord.ui.button(label="DESCHIDE ÎNSCRIERI", style=discord.ButtonStyle.success, custom_id="admin_open")
-    async def open_reg(self, interaction: discord.Interaction, button: discord.ui.Button):
-        global tournament_status, tournament_players, tournament_data
-        tournament_status, tournament_players, tournament_data = "înscrieri", [], {}
-        await interaction.response.send_message("✅ Înscrierile au fost deschise!", ephemeral=True)
-
-    @discord.ui.button(label="GENEREAZĂ CALIFICĂRI", style=discord.ButtonStyle.danger, custom_id="admin_gen")
-    async def start_tr(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if len(tournament_players) < 8:
-            return await interaction.response.send_message(f"❌ Ai nevoie de 8 oameni! (Momentan: {len(tournament_players)})", ephemeral=True)
-        
-        random.shuffle(tournament_players)
-        p = tournament_players
-        meciuri = [[p[0], p[1]], [p[2], p[3]], [p[4], p[5]], [p[6], p[7]]]
-        
-        embed = discord.Embed(title="🏆 TABEL MECIURI - CALIFICĂRI", color=0xffd700)
-        for i, m in enumerate(meciuri):
-            n1 = tournament_data[m[0]]['user_name']
-            n2 = tournament_data[m[1]]['user_name']
-            embed.add_field(name=f"Meciul {i+1}", value=f"⚔️ **{n1}** vs **{n2}**", inline=False)
-        
-        tabel_ch = bot.get_channel(TABEL_MECIURI_CH_ID)
-        if tabel_ch:
-            await tabel_ch.send(content="@everyone Tabelul meciurilor a fost stabilit!", embed=embed)
-        await interaction.response.send_message("✅ Tabel generat și trimis pe canalul de progres!", ephemeral=True)
-
-    @discord.ui.button(label="RESET TOTAL", style=discord.ButtonStyle.secondary, custom_id="admin_reset")
-    async def reset(self, interaction: discord.Interaction, button: discord.ui.Button):
-        global tournament_players, tournament_status, tournament_data
-        tournament_players, tournament_status, tournament_data = [], "închis", {}
-        await interaction.response.send_message("🧹 Datele turneului au fost resetate.", ephemeral=True)
-
-# ================= COMENZI =================
+def is_staff_or_special():
+    async def predicate(ctx):
+        is_staff = any(role.id == STAFF_ROLE_ID for role in ctx.author.roles)
+        return is_staff or ctx.author.id == SPECIAL_USER_ID or ctx.author.id == ctx.guild.owner_id
+    return commands.check(predicate)
 
 @bot.command()
-@commands.is_owner()
+@is_staff_or_special()
 async def win(ctx, member: discord.Member):
-    """Promovează un jucător în următoarea etapă pe canalul de progres"""
     tabel_ch = bot.get_channel(TABEL_MECIURI_CH_ID)
     if tabel_ch:
-        embed = discord.Embed(
-            description=f"🏆 Jucătorul **{member.display_name}** a câștigat meciul și trece în etapa următoare!",
-            color=discord.Color.gold()
-        )
-        await tabel_ch.send(embed=embed)
-        await ctx.send(f"✅ Am anunțat victoria lui {member.mention} pe canalul de progres.")
+        await tabel_ch.send(f"🏆 Jucătorul **{member.display_name}** trece în etapa următoare!")
+
+@bot.command()
+@is_staff_or_special()
+async def lose(ctx, member: discord.Member):
+    global tournament_players, banned_players
+    if member.id in tournament_players: tournament_players.remove(member.id)
+    banned_players.append(member.id)
+    tabel_ch = bot.get_channel(TABEL_MECIURI_CH_ID)
+    if tabel_ch:
+        await tabel_ch.send(f"❌ **{member.display_name}** a fost eliminat!")
+
+# ================= COMENZI DOAR OWNER (#setup / #admin) =================
 
 @bot.command()
 @commands.is_owner()
 async def setup_tournament(ctx):
     await ctx.message.delete()
-    embed = discord.Embed(
-        title="🏆 TURNEU STANDOFF 2 🏆", 
-        description="Apasă butonul de mai jos pentru a deschide un **Ticket de Înscriere**.\nÎn ticket va trebui să trimiți ID-ul, Device-ul și **POZA CU PROFILUL**.", 
-        color=0xff0000
-    )
+    embed = discord.Embed(title="🏆 TURNEU STANDOFF 2", description="Apasă butonul pentru înscriere!", color=0xff0000)
     await ctx.send(embed=embed, view=TournamentJoinView())
 
 @bot.command()
 @commands.is_owner()
 async def admin_tr(ctx):
-    await ctx.send("🛡️ **PANOU CONTROL TURNEU**", view=TournamentAdminPanel(), ephemeral=True)
+    view = discord.ui.View()
+    # Adăugăm butoanele rapid pentru panou
+    btn_open = discord.ui.Button(label="DESCHIDE ÎNSCRIERI", style=discord.ButtonStyle.success)
+    async def open_callback(inter):
+        global tournament_status, tournament_players, banned_players
+        tournament_status, tournament_players, banned_players = "înscrieri", [], []
+        await inter.response.send_message("✅ Înscrieri deschise!", ephemeral=True)
+    btn_open.callback = open_callback
+    view.add_item(btn_open)
+    
+    await ctx.send("🛡️ **PANOU OWNER**", view=view, ephemeral=True)
 
 @bot.event
 async def on_ready():
-    print(f"✅ Bot Online: {bot.user}")
     bot.add_view(TournamentJoinView())
-    bot.add_view(TournamentAdminPanel())
+    bot.add_view(TicketControlView())
+    print(f"✅ Bot Online: {bot.user}")
 
-# === PORNIRE ===
 keep_alive()
-token = os.getenv("DISCORD_TOKEN")
-if token: bot.run(token)
+bot.run(os.getenv("DISCORD_TOKEN"))
