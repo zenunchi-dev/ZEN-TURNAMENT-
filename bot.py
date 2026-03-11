@@ -14,7 +14,6 @@ def home():
     return "Online"
 
 def run():
-    # Render are nevoie să citească portul automat din sistem
     port = int(os.getenv("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
 
@@ -29,13 +28,50 @@ bot = commands.Bot(command_prefix="#", intents=intents)
 
 # ================= CONFIGURARE ID-URI =================
 TOURNAMENT_CATEGORY_ID = 1481418592217206885 
-ANNOUNCE_CHANNEL_ID = 1481418592217206885     
-VERSION = "6.0"
+ANNOUNCE_CHANNEL_ID = 1481418592217206885
+LOG_CHANNEL_ID = 1481418592217206885 # Poți schimba cu ID-ul unui canal unde vrei să vezi dovezile (ID joc + Poză)
 
 # Date globale pentru turneu
 tournament_players = []
+tournament_data = {} # Stocăm datele despre ID, device etc.
 tournament_matches = {"calificari": [], "semifinale": [], "finala": []}
 tournament_status = "închis"
+
+# ================= MODAL ÎNSCRIERE DETALIATĂ =================
+
+class TournamentRegisterModal(discord.ui.Modal, title="ÎNSCRIERE TURNEU STANDOFF 2"):
+    game_id = discord.ui.TextInput(label="ID JOC", placeholder="Ex: 12345678", min_length=5, max_length=15)
+    device = discord.ui.TextInput(label="DEVICE (Telefon/Tabletă)", placeholder="Ex: iPhone 13 / iPad Pro", min_length=2)
+    profile_url = discord.ui.TextInput(label="LINK POZĂ PROFIL (Imgur/Discord Link)", placeholder="Pune link-ul pozei cu profilul tău", required=True)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        global tournament_players, tournament_data
+        
+        user_id = interaction.user.id
+        tournament_players.append(user_id)
+        tournament_data[user_id] = {
+            "game_id": self.game_id.value,
+            "device": self.device.value,
+            "profile_url": self.profile_url.value
+        }
+
+        # Trimitem confirmare la jucător
+        await interaction.response.send_message(f"✅ Te-ai înscris cu succes, <@{user_id}>!", ephemeral=True)
+
+        # Trimitem log pentru Staff
+        log_chan = interaction.guild.get_channel(LOG_CHANNEL_ID)
+        if log_chan:
+            log_embed = discord.Embed(title="📥 ÎNSCRIERE NOUĂ", color=discord.Color.blue())
+            log_embed.add_field(name="Utilizator", value=f"<@{user_id}>", inline=True)
+            log_embed.add_field(name="ID Joc", value=self.game_id.value, inline=True)
+            log_embed.add_field(name="Device", value=self.device.value, inline=True)
+            log_embed.set_image(url=self.profile_url.value)
+            await log_chan.send(embed=log_embed)
+
+        # Update la mesajul de înscriere (număr participanți)
+        embed = interaction.message.embeds[0]
+        embed.set_footer(text=f"Participanți: {len(tournament_players)} / 8")
+        await interaction.message.edit(embed=embed)
 
 # ================= CLASE UI PERSISTENTE =================
 
@@ -53,12 +89,8 @@ class TournamentJoinView(discord.ui.View):
         if len(tournament_players) >= 8:
             return await interaction.response.send_message("❌ Turneul este deja plin (8/8)!", ephemeral=True)
 
-        tournament_players.append(interaction.user.id)
-        
-        embed = interaction.message.embeds[0]
-        embed.set_footer(text=f"Participanți: {len(tournament_players)} / 8")
-        await interaction.message.edit(embed=embed)
-        await interaction.response.send_message(f"✅ Te-ai înscris cu succes! ({len(tournament_players)}/8)", ephemeral=True)
+        # Deschidem formularul (Modal)
+        await interaction.response.send_modal(TournamentRegisterModal())
 
 class TournamentAdminPanel(discord.ui.View):
     def __init__(self):
@@ -66,14 +98,14 @@ class TournamentAdminPanel(discord.ui.View):
 
     @discord.ui.button(label="DESCHIDE ÎNSCRIERI", style=discord.ButtonStyle.success, custom_id="admin_open")
     async def open_reg(self, interaction: discord.Interaction, button: discord.ui.Button):
-        global tournament_status, tournament_players
-        tournament_status, tournament_players = "înscrieri", []
+        global tournament_status, tournament_players, tournament_data
+        tournament_status, tournament_players, tournament_data = "înscrieri", [], {}
         await interaction.response.send_message("✅ Înscrierile turneului au fost deschise!", ephemeral=True)
 
     @discord.ui.button(label="GENEREAZĂ CALIFICĂRI", style=discord.ButtonStyle.danger, custom_id="admin_gen")
     async def start_tr(self, interaction: discord.Interaction, button: discord.ui.Button):
         if len(tournament_players) < 8:
-            return await interaction.response.send_message(f"❌ Ai nevoie de 8 oameni! (Momentan: {len(tournament_players)})", ephemeral=True)
+            return await interaction.response.send_message(f"❌ Ai nevoie de 8 oameni!", ephemeral=True)
         
         random.shuffle(tournament_players)
         p = tournament_players
@@ -81,19 +113,19 @@ class TournamentAdminPanel(discord.ui.View):
         
         embed = discord.Embed(title="🏆 TURNEU STANDOFF 2 - BRACKETS", color=0xffd700)
         for i, m in enumerate(tournament_matches["calificari"]):
-            embed.add_field(name=f"Meciul {i+1}", value=f"⚔️ <@{m[0]}> **vs** <@{m[1]}>", inline=False)
+            p1_id = tournament_data[m[0]]['game_id']
+            p2_id = tournament_data[m[1]]['game_id']
+            embed.add_field(name=f"Meciul {i+1}", value=f"⚔️ <@{m[0]}> (ID: {p1_id}) **vs** <@{m[1]}> (ID: {p2_id})", inline=False)
         
         chan = interaction.guild.get_channel(ANNOUNCE_CHANNEL_ID)
         if chan:
             await chan.send(content="@everyone Meciurile din calificări au fost stabilite!", embed=embed)
             await interaction.response.send_message("✅ Tabelul a fost generat!", ephemeral=True)
-        else:
-            await interaction.response.send_message("❌ Eroare: Nu am găsit canalul!", ephemeral=True)
 
     @discord.ui.button(label="RESET TOTAL", style=discord.ButtonStyle.secondary, custom_id="admin_reset")
     async def reset(self, interaction: discord.Interaction, button: discord.ui.Button):
-        global tournament_players, tournament_status
-        tournament_players, tournament_status = [], "închis"
+        global tournament_players, tournament_status, tournament_data
+        tournament_players, tournament_status, tournament_data = [], "închis", {}
         await interaction.response.send_message("🧹 Datele turneului au fost resetate.", ephemeral=True)
 
 # ================= COMENZI OWNER =================
@@ -113,7 +145,7 @@ async def setup_tournament(ctx):
     await ctx.message.delete()
     embed = discord.Embed(
         title="🏆 TURNEU STANDOFF 2 🏆",
-        description="Apasă butonul de mai jos pentru a te înscrie!\n\n**Format:** 1v1",
+        description="Apasă butonul de mai jos pentru a te înscrie!\nVa trebui să introduci ID-ul tău, Device-ul și un link către poza de profil.",
         color=0xff0000
     )
     embed.set_footer(text=f"Participanți: {len(tournament_players)} / 8")
@@ -151,9 +183,8 @@ async def on_ready():
 # === PORNIRE ===
 keep_alive()
 
-# Citește token-ul din variabila DISCORD_TOKEN setată în Environment pe Render
 token = os.getenv("DISCORD_TOKEN")
 if token:
     bot.run(token)
 else:
-    print("❌ EROARE: Nu am găsit variabila DISCORD_TOKEN în Environment Variables!")
+    print("❌ EROARE: Nu am găsit variabila DISCORD_TOKEN!")
