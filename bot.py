@@ -27,9 +27,9 @@ bot = commands.Bot(command_prefix="#", intents=intents)
 TOURNAMENT_CATEGORY_ID = 1481418592217206885
 LOG_CHANNEL_ID = 1481418592217206885
 TABEL_MECIURI_CH_ID = 1481418744956850392 
-STAFF_ROLE_ID = 1481794622752555072       # Rolul nou de staff
-OWNER_ID = 1466541122636611759            # ID-ul tău de owner
-REJECT_ROLE_ID = 1481790057412038738
+STAFF_ROLE_ID = 1481794622752555072       # Rolul tău de Staff
+OWNER_ID = 1466541122636611759            # ID-ul tău de Owner
+REJECT_ROLE_ID = 1481790057412038738      # Rol rejectat
 SPECIAL_USER_ID = 810609759324471306     
 
 # State Turneu
@@ -37,7 +37,7 @@ tournament_players = []
 banned_players = [] 
 tournament_data = {} 
 tournament_status = "închis"
-last_table_msg_id = None
+last_table_msg_id = None # Gestionare mesaj tabel pentru a-l șterge pe cel vechi
 
 # --- LOGICĂ TABEL TEXT ---
 bracket_slots = {i: "[LIBER]" for i in range(1, 18)}
@@ -84,7 +84,7 @@ async def update_table(user_name="Nimeni", game_id="N/A"):
         new_msg = await tabel_ch.send(generate_bracket_text(user_name, game_id))
         last_table_msg_id = new_msg.id
 
-# ================= SISTEM STAFF (ACCEPT/REJECT RESTRICTED) =================
+# ================= SISTEM ACCEPT/REJECT =================
 
 class StaffReviewView(discord.ui.View):
     def __init__(self, player, game_id):
@@ -94,15 +94,15 @@ class StaffReviewView(discord.ui.View):
 
     @discord.ui.button(label="ACCEPTĂ", style=discord.ButtonStyle.success, emoji="✅")
     async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # VERIFICARE PERMISIUNI (DOAR TU SAU STAFF)
         is_staff = any(role.id == STAFF_ROLE_ID for role in interaction.user.roles)
         is_owner = interaction.user.id == OWNER_ID
         
         if not (is_staff or is_owner):
-            return await interaction.response.send_message("❌ Doar Staff-ul și Ownerul pot accepta jucători!", ephemeral=True)
+            return await interaction.response.send_message("❌ Nu ai permisiune (doar Staff/Owner)!", ephemeral=True)
 
         free_slots = [i for i in range(1, 11) if bracket_slots[i] == "[LIBER]"]
-        if not free_slots: return await interaction.response.send_message("❌ Tabel plin!", ephemeral=True)
+        if not free_slots:
+            return await interaction.response.send_message("❌ Nu mai sunt locuri libere în Runda 1!", ephemeral=True)
 
         slot = random.choice(free_slots)
         bracket_slots[slot] = f"{self.player.name}({self.game_id})"
@@ -110,33 +110,29 @@ class StaffReviewView(discord.ui.View):
         tournament_data[self.player.id] = {"user_name": self.player.name, "game_id": self.game_id}
 
         await update_table(self.player.name, self.game_id)
-        await interaction.response.send_message(f"✅ {self.player.mention} a fost acceptat de către {interaction.user.mention} pe locul {slot}.")
-        await self.player.send(f"🏆 Ai fost acceptat în turneu pe locul {slot}!")
+        await interaction.response.send_message(f"✅ Acceptat pe locul {slot}!")
         self.stop()
 
     @discord.ui.button(label="REJECTĂ", style=discord.ButtonStyle.danger, emoji="❌")
     async def reject(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # VERIFICARE PERMISIUNI (DOAR TU SAU STAFF)
         is_staff = any(role.id == STAFF_ROLE_ID for role in interaction.user.roles)
         is_owner = interaction.user.id == OWNER_ID
         
         if not (is_staff or is_owner):
-            return await interaction.response.send_message("❌ Doar Staff-ul și Ownerul pot respinge jucători!", ephemeral=True)
+            return await interaction.response.send_message("❌ Nu ai permisiune (doar Staff/Owner)!", ephemeral=True)
 
         role = interaction.guild.get_role(REJECT_ROLE_ID)
         if role:
             await self.player.add_roles(role)
-            await interaction.response.send_message(f"❌ {self.player.mention} a fost respins. Rolul va fi scos peste 12 ore.")
-            async def remove_role_later():
+            await interaction.response.send_message(f"❌ Respins. Rolul va fi scos peste 12 ore.")
+            async def remove_role_later(member, role_obj):
                 await asyncio.sleep(43200) # 12h
-                try: await self.player.remove_roles(role)
+                try: await member.remove_roles(role_obj)
                 except: pass
-            bot.loop.create_task(remove_role_later())
-        
-        await self.player.send("❌ Înscrierea ta la turneu a fost respinsă.")
+            bot.loop.create_task(remove_role_later(self.player, role))
         self.stop()
 
-# ================= RESTUL CODULUI (NESCHIMBAT) =================
+# ================= BUTON CLOSE TICKET =================
 
 class TicketControlView(discord.ui.View):
     def __init__(self):
@@ -145,12 +141,16 @@ class TicketControlView(discord.ui.View):
     @discord.ui.button(label="ÎNCHIDE TICKET", style=discord.ButtonStyle.danger, custom_id="close_ticket_btn", emoji="🔒")
     async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
         is_staff = any(role.id == STAFF_ROLE_ID for role in interaction.user.roles)
-        if is_staff or interaction.user.id == OWNER_ID:
-            await interaction.response.send_message("🔒 Ticketul se închide...")
-            await asyncio.sleep(3)
+        is_owner = interaction.user.id == OWNER_ID
+
+        if is_staff or is_owner or interaction.user.id == SPECIAL_USER_ID:
+            await interaction.response.send_message("🔒 Se închide...")
+            await asyncio.sleep(5)
             await interaction.channel.delete()
         else:
-            await interaction.response.send_message("❌ Nu ai permisiune!", ephemeral=True)
+            await interaction.response.send_message("❌ Nu ai permisiunea de a închide ticketul!", ephemeral=True)
+
+# ================= SISTEM ÎNSCRIERE =================
 
 class TournamentJoinView(discord.ui.View):
     def __init__(self):
@@ -161,7 +161,9 @@ class TournamentJoinView(discord.ui.View):
         global tournament_status
         if tournament_status != "înscrieri":
             return await interaction.response.send_message("❌ Înscrierile sunt închise!", ephemeral=True)
-        
+        if interaction.user.id in tournament_players:
+            return await interaction.response.send_message("❌ Ești deja înscris!", ephemeral=True)
+
         guild = interaction.guild
         category = guild.get_channel(TOURNAMENT_CATEGORY_ID)
         overwrites = {
@@ -171,17 +173,22 @@ class TournamentJoinView(discord.ui.View):
         }
 
         ticket_channel = await guild.create_text_channel(name=f"🎫-{interaction.user.name}", category=category, overwrites=overwrites)
-        await interaction.response.send_message(f"✅ Ticket: {ticket_channel.mention}", ephemeral=True)
+        await interaction.response.send_message(f"✅ Ticket creat: {ticket_channel.mention}", ephemeral=True)
         
-        embed = discord.Embed(title="📝 ÎNSCRIERE", description="Trimite ID-ul și Screenshot-ul.", color=0x3498db)
+        embed = discord.Embed(title="📝 ÎNSCRIERE", description="Trimite un mesaj cu ID-ul și screenshot-ul de profil.", color=0x3498db)
         await ticket_channel.send(content=f"{interaction.user.mention}", embed=embed, view=TicketControlView())
 
         def check(m): return m.author == interaction.user and m.channel == ticket_channel and len(m.attachments) > 0
         try:
             msg = await bot.wait_for("message", check=check, timeout=600)
-            game_id = re.search(r'\d{5,10}', msg.content).group(0) if re.search(r'\d{5,10}', msg.content) else "N/A"
-            await ticket_channel.send("⏳ Așteaptă decizia staff-ului...", view=StaffReviewView(interaction.user, game_id))
+            found_id = re.search(r'\d{5,10}', msg.content)
+            game_id = found_id.group(0) if found_id else "ID Necunoscut"
+            
+            # Trimite cererea de accept către staff
+            await ticket_channel.send("⏳ Cerere trimisă! Așteaptă confirmarea staff-ului.", view=StaffReviewView(interaction.user, game_id))
         except: pass
+
+# ================= COMENZI STAFF (WIN / SET / LOSE) =================
 
 @bot.command()
 async def win(ctx, pozitie: int, member: discord.Member):
@@ -190,11 +197,21 @@ async def win(ctx, pozitie: int, member: discord.Member):
         p_data = tournament_data.get(member.id, {"game_id": "N/A"})
         bracket_slots[pozitie] = f"{member.name}({p_data['game_id']})"
         await update_table(member.name, p_data['game_id'])
-        await ctx.send(f"✅ Jucătorul {member.mention} pus pe {pozitie}!")
+        await ctx.send(f"✅ Jucătorul {member.mention} a fost pus pe poziția {pozitie}!")
 
 @bot.command()
 async def set(ctx, pozitie: int, member: discord.Member):
     await win(ctx, pozitie, member)
+
+@bot.command()
+async def lose(ctx, member: discord.Member):
+    is_staff = any(role.id == STAFF_ROLE_ID for role in ctx.author.roles)
+    if is_staff or ctx.author.id == OWNER_ID:
+        if member.id in tournament_players: tournament_players.remove(member.id)
+        banned_players.append(member.id)
+        await ctx.message.add_reaction("💀")
+
+# ================= COMENZI OWNER (ADMIN_TR ORIGINAL) =================
 
 @bot.command()
 @commands.is_owner()
