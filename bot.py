@@ -27,9 +27,9 @@ bot = commands.Bot(command_prefix="#", intents=intents)
 TOURNAMENT_CATEGORY_ID = 1481418592217206885
 LOG_CHANNEL_ID = 1481418592217206885
 TABEL_MECIURI_CH_ID = 1481418744956850392 
-STAFF_ROLE_ID = 1481794622752555072       # Rolul tău de Staff
-OWNER_ID = 1466541122636611759            # ID-ul tău de Owner
-REJECT_ROLE_ID = 1481790057412038738      # Rol rejectat
+STAFF_ROLE_ID = 1481794622752555072       
+OWNER_ID = 1466541122636611759            
+REJECT_ROLE_ID = 1481790057412038738      
 SPECIAL_USER_ID = 810609759324471306     
 
 # State Turneu
@@ -103,12 +103,10 @@ class StaffReviewView(discord.ui.View):
         if not free_slots: return await interaction.response.send_message("❌ Tabel plin!", ephemeral=True)
 
         slot = random.choice(free_slots)
-        bracket_slots[slot] = f"{self.player.name}({self.game_id})"
+        bracket_slots[slot] = f"{self.player.name}"
         tournament_players.append(self.player.id)
-        tournament_data[self.player.id] = {"user_name": self.player.name, "game_id": self.game_id}
-
-        await update_table(self.player.name, self.game_id)
-        await interaction.response.send_message(f"✅ Acceptat pe locul {slot}!")
+        await update_table(self.player.name, "ID")
+        await interaction.response.send_message(f"✅ Adăugat pe locul {slot}!")
         self.stop()
 
     @discord.ui.button(label="REJECTĂ", style=discord.ButtonStyle.danger, emoji="❌")
@@ -166,20 +164,19 @@ class TournamentJoinView(discord.ui.View):
         ticket_channel = await guild.create_text_channel(name=f"🎫-{interaction.user.name}", category=category, overwrites=overwrites)
         await interaction.response.send_message(f"✅ Ticket: {ticket_channel.mention}", ephemeral=True)
         
-        # BUTOANELE APAR ACUM IMEDIAT AICI:
+        # BUTOANELE APAR ACUM INSTANT CÂND SE DESCHIDE TICKETUL
         embed = discord.Embed(title="📝 ÎNSCRIERE", description="Trimite screenshot-ul. Staff-ul va folosi butoanele de mai jos.", color=0x3498db)
         await ticket_channel.send(content=f"{interaction.user.mention}", embed=embed, view=StaffReviewView(interaction.user, "N/A"))
-        await ticket_channel.send("Buton administrativ:", view=TicketControlView())
+        await ticket_channel.send("Folosește butonul de mai jos pentru a închide ticketul:", view=TicketControlView())
 
-# ================= COMENZI ADMIN (ORIGINALE) =================
+# ================= COMENZI ADMIN (STRICT ORIGINALE) =================
 
 @bot.command()
-async def win(ctx, pozitie: int, member: discord.Member):
-    is_staff = any(role.id == STAFF_ROLE_ID for role in ctx.author.roles)
-    if is_staff or ctx.author.id == OWNER_ID:
-        bracket_slots[pozitie] = f"{member.name}"
-        await update_table(member.name, "Manual")
-        await ctx.send(f"✅ Poziția {pozitie} actualizată.")
+@commands.is_owner()
+async def setup_tournament(ctx):
+    await ctx.message.delete()
+    embed = discord.Embed(title="🏆 STANDOFF 2 - TOURNAMENT 🏆", description="Apasă butonul de mai jos.", color=0xff0000)
+    await ctx.send(embed=embed, view=TournamentJoinView())
 
 @bot.command()
 @commands.is_owner()
