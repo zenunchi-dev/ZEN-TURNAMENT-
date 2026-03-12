@@ -39,8 +39,18 @@ banned_players = []
 tournament_data = {} 
 tournament_status = "închis"
 
-# Imaginea de tabel cerută
-TABEL_IMG_URL = "https://share.google/00odAdBTpHHwrtrii"
+# --- LOGICĂ NOUĂ TABEL (Păstrând restul codului) ---
+winners_history = [] # Listă pentru a ține minte ordinea câștigătorilor
+TABEL_IMG_URL = "https://i.imgur.com/vHqB37f.png" # Link direct către tabelul de 15 echipe trimis de tine
+
+# Coordonate aproximative pentru tabelul de 15 echipe (X, Y)
+# Acestea corespund liniilor de la 1# la 15# din imaginea ta
+BRACKET_COORDS = [
+    (180, 210), (180, 245), (180, 310), (180, 345), # Locurile 1-4
+    (180, 410), (180, 445), (180, 510), (180, 545), # Locurile 5-8
+    (180, 610), (180, 645), (180, 710), (180, 745), # Locurile 9-12
+    (180, 810), (180, 845), (340, 910)              # Locurile 13-15
+]
 
 # ================= BUTON CLOSE TICKET =================
 
@@ -106,7 +116,6 @@ class TournamentJoinView(discord.ui.View):
         try:
             msg = await bot.wait_for("message", check=check, timeout=600)
             
-            # Încercăm să extragem ID-ul (cifre) din mesaj
             found_id = re.search(r'\d{5,10}', msg.content)
             game_id = found_id.group(0) if found_id else "ID Necunoscut"
 
@@ -139,39 +148,40 @@ def is_staff_or_special():
 @bot.command()
 @is_staff_or_special()
 async def win(ctx, member: discord.Member):
+    global winners_history
     tabel_ch = bot.get_channel(TABEL_MECIURI_CH_ID)
     if tabel_ch:
         p_data = tournament_data.get(member.id, {"game_id": "N/A"})
         
-        # --- LOGICA DE DESENARE PE IMAGINE (Sistemul de tabel) ---
+        # Salvăm câștigătorul în listă dacă nu e deja (ca să nu repete)
+        if member.id not in [w['id'] for w in winners_history]:
+            winners_history.append({'id': member.id, 'name': member.display_name, 'game_id': p_data['game_id']})
+        
         try:
-            # Descarcăm imaginea de fundal
             response = requests.get(TABEL_IMG_URL)
             img = Image.open(io.BytesIO(response.content)).convert("RGBA")
             draw = ImageDraw.Draw(img)
             
-            # Încercăm un font standard
             try:
-                font = ImageFont.truetype("arial.ttf", 30)
+                font = ImageFont.truetype("arial.ttf", 18) # Font mai mic pentru tabelul strâns
             except:
                 font = ImageFont.load_default()
 
-            # Textul: Numele lui de pe Discord și ID-ul de joc salvat la înscriere
-            display_text = f"{member.display_name}\nID: {p_data['game_id']}"
-            
-            # Coordonatele (X, Y) - Modifică (150, 200) ca să pice fix în prima căsuță
-            draw.text((150, 200), display_text, fill="white", font=font)
+            # Desenăm toți câștigătorii înregistrați până acum pe tabel
+            for i, winner in enumerate(winners_history):
+                if i < len(BRACKET_COORDS):
+                    pos = BRACKET_COORDS[i]
+                    text = f"{winner['name']} (ID:{winner['game_id']})"
+                    draw.text(pos, text, fill="black", font=font)
 
-            # Salvăm rezultatul
             buffer = io.BytesIO()
             img.save(buffer, format="PNG")
             buffer.seek(0)
             file = discord.File(fp=buffer, filename="tabel.png")
 
-            visual_name = f"**{member.display_name}** `ID: {p_data['game_id']}`"
             embed = discord.Embed(
-                title="🏆 ETAPĂ URMĂTOARE",
-                description=f"Jucătorul {visual_name} a câștigat!",
+                title="🏆 TABEL ACTUALIZAT",
+                description=f"Jucătorul **{member.display_name}** a fost adăugat în tabel!",
                 color=discord.Color.gold()
             )
             embed.set_image(url="attachment://tabel.png")
@@ -200,8 +210,7 @@ async def setup_tournament(ctx):
     await ctx.message.delete()
     embed = discord.Embed(
         title="🏆 STANDOFF 2 - TOURNAMENT 🏆",
-        description="Apasă butonul de mai jos pentru a deschide un ticket de înscriere.\n\n"
-                    "⚠️ **Asigură-te că ai screenshot-ul profilului pregătit!**",
+        description="Apasă butonul de mai jos pentru a deschide un ticket de înscriere.",
         color=0xff0000
     )
     await ctx.send(embed=embed, view=TournamentJoinView())
@@ -217,31 +226,30 @@ async def admin_tr(ctx):
     
     view = discord.ui.View()
     
-    btn_start = discord.ui.Button(label="START ÎNSCRIERI", style=discord.ButtonStyle.success, emoji="▶️")
+    btn_start = discord.ui.Button(label="START ÎNSCRIERI", style=discord.ButtonStyle.success)
     async def start_callback(inter):
         global tournament_status
         tournament_status = "înscrieri"
-        await inter.response.send_message("✅ Înscrierile au fost pornite!", ephemeral=True)
+        await inter.response.send_message("✅ Pornit!", ephemeral=True)
     btn_start.callback = start_callback
     
-    btn_stop = discord.ui.Button(label="STOP ÎNSCRIERI", style=discord.ButtonStyle.danger, emoji="⏹️")
+    btn_stop = discord.ui.Button(label="STOP ÎNSCRIERI", style=discord.ButtonStyle.danger)
     async def stop_callback(inter):
         global tournament_status
         tournament_status = "închis"
-        await inter.response.send_message("🛑 Înscrierile au fost oprite!", ephemeral=True)
+        await inter.response.send_message("🛑 Oprit!", ephemeral=True)
     btn_stop.callback = stop_callback
 
-    btn_reset = discord.ui.Button(label="RESET DATE", style=discord.ButtonStyle.secondary, emoji="🔄")
+    btn_reset = discord.ui.Button(label="RESET DATE", style=discord.ButtonStyle.secondary)
     async def reset_callback(inter):
-        global tournament_players, banned_players, tournament_data
-        tournament_players, banned_players, tournament_data = [], [], {}
-        await inter.response.send_message("🧹 Toate datele au fost resetate!", ephemeral=True)
+        global tournament_players, banned_players, tournament_data, winners_history
+        tournament_players, banned_players, tournament_data, winners_history = [], [], {}, []
+        await inter.response.send_message("🧹 Resetat!", ephemeral=True)
     btn_reset.callback = reset_callback
 
     view.add_item(btn_start)
     view.add_item(btn_stop)
     view.add_item(btn_reset)
-    
     await ctx.send(embed=embed, view=view, ephemeral=True)
 
 @bot.event
