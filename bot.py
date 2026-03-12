@@ -39,18 +39,51 @@ banned_players = []
 tournament_data = {} 
 tournament_status = "închis"
 
-# --- LOGICĂ NOUĂ TABEL (Păstrând restul codului) ---
-winners_history = [] # Listă pentru a ține minte ordinea câștigătorilor
-TABEL_IMG_URL = "https://i.imgur.com/vHqB37f.png" # Link direct către tabelul de 15 echipe trimis de tine
+# --- LOGICĂ TABEL TEXT (Bracket 15 Echipe) ---
+bracket_slots = {i: "[LIBER]" for i in range(1, 16)}
 
-# Coordonate aproximative pentru tabelul de 15 echipe (X, Y)
-# Acestea corespund liniilor de la 1# la 15# din imaginea ta
-BRACKET_COORDS = [
-    (180, 210), (180, 245), (180, 310), (180, 345), # Locurile 1-4
-    (180, 410), (180, 445), (180, 510), (180, 545), # Locurile 5-8
-    (180, 610), (180, 645), (180, 710), (180, 745), # Locurile 9-12
-    (180, 810), (180, 845), (340, 910)              # Locurile 13-15
-]
+def generate_bracket_text(last_user="Nimeni", last_id="N/A"):
+    text = (
+        "```\n"
+        "=========================================\n"
+        "      15 TEAM SINGLE-ELIMINATION\n"
+        "=========================================\n\n"
+        "RUNDA 1          SFERTURI          SEMIFINALE\n"
+        "----------      ----------        ------------\n\n"
+        f"1# {bracket_slots[1]} ──┐\n"
+        "               ├─ [MECI 8] ──┐\n"
+        f"2# {bracket_slots[2]} ──┘                 │\n"
+        "                                 ├─ [MECI 12] ──┐\n"
+        f"3# {bracket_slots[3]} ──┐                 │                   │\n"
+        "               ├─ [MECI 8] ──┘                   │\n"
+        f"4# {bracket_slots[4]} ──┘                                     │\n"
+        "                                                     ├─ [FINALIST] ──┐\n"
+        f"5# {bracket_slots[5]} ──┐                                     │               │\n"
+        "               ├─ [MECI 9] ──┐                   │               │\n"
+        f"6# {bracket_slots[6]} ──┘                 │                   │               │\n"
+        "                                 ├─ [MECI 12] ──┘               │\n"
+        f"7# {bracket_slots[7]} ──┐                 │                                   │\n"
+        "               ├─ [MECI 9] ──┘                                   │\n"
+        f"8# {bracket_slots[8]} ──┘                                                     │\n"
+        "                                                                     ├─ 🏆 WINNER\n"
+        f"9# {bracket_slots[9]} ──┐                                                     │\n"
+        "               ├─ [MECI 10] ──┐                                  │\n"
+        f"10#{bracket_slots[10]} ──┘                 │                                  │\n"
+        "                                 ├─ [MECI 13] ──┐               │\n"
+        f"11#{bracket_slots[11]} ──┐                 │                   │               │\n"
+        "               ├─ [MECI 10] ──┘                   │               │\n"
+        f"12#{bracket_slots[12]} ──┘                                     ├─ [FINALIST] ──┘\n"
+        "                                                     │\n"
+        f"13#{bracket_slots[13]} ──┐                                     │\n"
+        "               ├─ [MECI 11] ──┐                   │\n"
+        f"14#{bracket_slots[14]} ──┘                 │                   │\n"
+        "                                 ├─ [MECI 13] ──┘\n"
+        f"15#{bracket_slots[15]} ────────────────────┘\n\n"
+        "=========================================\n"
+        f"Ultimul update: Jucătorul {last_user} (ID: {last_id})\n"
+        "```"
+    )
+    return text
 
 # ================= BUTON CLOSE TICKET =================
 
@@ -121,9 +154,20 @@ class TournamentJoinView(discord.ui.View):
 
             tournament_players.append(interaction.user.id)
             tournament_data[interaction.user.id] = {
-                "user_name": interaction.user.display_name,
-                "game_id": game_id
+                "user_name": interaction.user.name,
+                "game_id": game_id,
+                "mention": interaction.user.mention
             }
+
+            # --- AUTOMATIZARE TABEL LA INSCRIERE ---
+            tabel_ch = bot.get_channel(TABEL_MECIURI_CH_ID)
+            if tabel_ch:
+                # Căutăm primul loc liber de la 1 la 15
+                for i in range(1, 16):
+                    if bracket_slots[i] == "[LIBER]":
+                        bracket_slots[i] = f"{interaction.user.name}({game_id})"
+                        break
+                await tabel_ch.send(generate_bracket_text(interaction.user.name, game_id))
 
             log_chan = bot.get_channel(LOG_CHANNEL_ID)
             if log_chan:
@@ -145,51 +189,20 @@ def is_staff_or_special():
         return is_staff or ctx.author.id == SPECIAL_USER_ID or ctx.author.id == ctx.guild.owner_id
     return commands.check(predicate)
 
+# COMANDA CERUTA: #win1, #win2, etc.
 @bot.command()
 @is_staff_or_special()
-async def win(ctx, member: discord.Member):
-    global winners_history
-    tabel_ch = bot.get_channel(TABEL_MECIURI_CH_ID)
-    if tabel_ch:
+async def win(ctx, pozitie: int, member: discord.Member):
+    if 1 <= pozitie <= 15:
         p_data = tournament_data.get(member.id, {"game_id": "N/A"})
+        bracket_slots[pozitie] = f"{member.name}({p_data['game_id']})"
         
-        # Salvăm câștigătorul în listă dacă nu e deja (ca să nu repete)
-        if member.id not in [w['id'] for w in winners_history]:
-            winners_history.append({'id': member.id, 'name': member.display_name, 'game_id': p_data['game_id']})
-        
-        try:
-            response = requests.get(TABEL_IMG_URL)
-            img = Image.open(io.BytesIO(response.content)).convert("RGBA")
-            draw = ImageDraw.Draw(img)
-            
-            try:
-                font = ImageFont.truetype("arial.ttf", 18) # Font mai mic pentru tabelul strâns
-            except:
-                font = ImageFont.load_default()
-
-            # Desenăm toți câștigătorii înregistrați până acum pe tabel
-            for i, winner in enumerate(winners_history):
-                if i < len(BRACKET_COORDS):
-                    pos = BRACKET_COORDS[i]
-                    text = f"{winner['name']} (ID:{winner['game_id']})"
-                    draw.text(pos, text, fill="black", font=font)
-
-            buffer = io.BytesIO()
-            img.save(buffer, format="PNG")
-            buffer.seek(0)
-            file = discord.File(fp=buffer, filename="tabel.png")
-
-            embed = discord.Embed(
-                title="🏆 TABEL ACTUALIZAT",
-                description=f"Jucătorul **{member.display_name}** a fost adăugat în tabel!",
-                color=discord.Color.gold()
-            )
-            embed.set_image(url="attachment://tabel.png")
-            await tabel_ch.send(embed=embed, file=file)
-            await ctx.message.add_reaction("✅")
-            
-        except Exception as e:
-            await ctx.send(f"⚠️ Eroare imagine: {e}")
+        tabel_ch = bot.get_channel(TABEL_MECIURI_CH_ID)
+        if tabel_ch:
+            await tabel_ch.send(generate_bracket_text(member.name, p_data['game_id']))
+            await ctx.send(f"✅ Jucătorul {member.mention} a fost pus pe poziția {pozitie}!")
+    else:
+        await ctx.send("❌ Alege o poziție între 1 și 15.")
 
 @bot.command()
 @is_staff_or_special()
@@ -202,7 +215,7 @@ async def lose(ctx, member: discord.Member):
         await tabel_ch.send(f"❌ **{member.display_name}** a fost eliminat din turneu.")
     await ctx.message.add_reaction("💀")
 
-# ================= COMENZI DOAR OWNER (#setup / #admin) =================
+# ================= COMENZI DOAR OWNER =================
 
 @bot.command()
 @commands.is_owner()
@@ -218,12 +231,7 @@ async def setup_tournament(ctx):
 @bot.command()
 @commands.is_owner()
 async def admin_tr(ctx):
-    embed = discord.Embed(
-        title="🛡️ PANOU CONTROL OWNER",
-        description="Gestionează starea înscrierilor pentru turneu.",
-        color=discord.Color.dark_grey()
-    )
-    
+    embed = discord.Embed(title="🛡️ PANOU CONTROL OWNER", color=discord.Color.dark_grey())
     view = discord.ui.View()
     
     btn_start = discord.ui.Button(label="START ÎNSCRIERI", style=discord.ButtonStyle.success)
@@ -242,8 +250,9 @@ async def admin_tr(ctx):
 
     btn_reset = discord.ui.Button(label="RESET DATE", style=discord.ButtonStyle.secondary)
     async def reset_callback(inter):
-        global tournament_players, banned_players, tournament_data, winners_history
-        tournament_players, banned_players, tournament_data, winners_history = [], [], {}, []
+        global tournament_players, banned_players, tournament_data, bracket_slots
+        tournament_players, banned_players, tournament_data = [], [], {}
+        for i in range(1, 16): bracket_slots[i] = "[LIBER]"
         await inter.response.send_message("🧹 Resetat!", ephemeral=True)
     btn_reset.callback = reset_callback
 
