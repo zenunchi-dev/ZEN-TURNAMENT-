@@ -39,46 +39,34 @@ banned_players = []
 tournament_data = {} 
 tournament_status = "închis"
 
-# --- LOGICĂ TABEL TEXT (Bracket 15 Echipe) ---
-bracket_slots = {i: "[LIBER]" for i in range(1, 16)}
+# --- LOGICĂ TABEL TEXT (Schema 10 Persoane) ---
+bracket_slots = {i: "[LIBER]" for i in range(1, 17)}
+# Mapare vizuală: 11=WinA, 12=WinB, 13=WinC, 14=WinD, 15=WinSUS, 16=WinJOS, 17=REGE
 
 def generate_bracket_text(last_user="Nimeni", last_id="N/A"):
     text = (
-        "```\n"
-        "=========================================\n"
-        "      15 TEAM SINGLE-ELIMINATION\n"
-        "=========================================\n\n"
-        "RUNDA 1          SFERTURI          SEMIFINALE\n"
-        "----------      ----------        ------------\n\n"
-        f"1# {bracket_slots[1]} ──┐\n"
-        "               ├─ [MECI 8] ──┐\n"
-        f"2# {bracket_slots[2]} ──┘                 │\n"
-        "                                 ├─ [MECI 12] ──┐\n"
-        f"3# {bracket_slots[3]} ──┐                 │                   │\n"
-        "               ├─ [MECI 8] ──┘                   │\n"
-        f"4# {bracket_slots[4]} ──┘                                     │\n"
-        "                                                     ├─ [FINALIST] ──┐\n"
-        f"5# {bracket_slots[5]} ──┐                                     │               │\n"
-        "               ├─ [MECI 9] ──┐                   │               │\n"
-        f"6# {bracket_slots[6]} ──┘                 │                   │               │\n"
-        "                                 ├─ [MECI 12] ──┘               │\n"
-        f"7# {bracket_slots[7]} ──┐                 │                                   │\n"
-        "               ├─ [MECI 9] ──┘                                   │\n"
-        f"8# {bracket_slots[8]} ──┘                                                     │\n"
-        "                                                                     ├─ 🏆 WINNER\n"
-        f"9# {bracket_slots[9]} ──┐                                                     │\n"
-        "               ├─ [MECI 10] ──┐                                  │\n"
-        f"10#{bracket_slots[10]} ──┘                 │                                  │\n"
-        "                                 ├─ [MECI 13] ──┐               │\n"
-        f"11#{bracket_slots[11]} ──┐                 │                   │               │\n"
-        "               ├─ [MECI 10] ──┘                   │               │\n"
-        f"12#{bracket_slots[12]} ──┘                                     ├─ [FINALIST] ──┘\n"
-        "                                                     │\n"
-        f"13#{bracket_slots[13]} ──┐                                     │\n"
-        "               ├─ [MECI 11] ──┐                   │\n"
-        f"14#{bracket_slots[14]} ──┘                 │                   │\n"
-        "                                 ├─ [MECI 13] ──┘\n"
-        f"15#{bracket_slots[15]} ────────────────────┘\n\n"
+        "```text\n"
+        "ROUND 1           SEMIFINALA           FINALA           CAMPION\n\n"
+        f"{bracket_slots[1]} ──┐\n"
+        f"           ├── {bracket_slots[11]} ──┐\n"
+        f"{bracket_slots[2]} ──┘                 │\n"
+        f"                             ├── {bracket_slots[15]} ──┐\n"
+        f"{bracket_slots[3]} ──┐                 │                  │\n"
+        f"           ├── {bracket_slots[12]} ──┘                  │\n"
+        f"{bracket_slots[4]} ──┘                                    │\n"
+        "                                                │\n"
+        f"{bracket_slots[5]} ───────────────────────────────────────┤\n"
+        "                                                │\n"
+        f"                                                ├── 🏆 {bracket_slots[17]}\n"
+        f"{bracket_slots[10]} ──────────────────────────────────────┤\n"
+        "                                                │\n"
+        f"{bracket_slots[6]} ──┐                                    │\n"
+        f"           ├── {bracket_slots[13]} ──┐                  │\n"
+        f"{bracket_slots[7]} ──┘                 │                  │\n"
+        f"                             ├── {bracket_slots[16]} ──┘\n"
+        f"{bracket_slots[8]} ──┐                 │\n"
+        f"           ├── {bracket_slots[14]} ──┘\n"
+        f"{bracket_slots[9]} ──┘\n\n"
         "=========================================\n"
         f"Ultimul update: Jucătorul {last_user} (ID: {last_id})\n"
         "```"
@@ -162,8 +150,8 @@ class TournamentJoinView(discord.ui.View):
             # --- AUTOMATIZARE TABEL LA INSCRIERE ---
             tabel_ch = bot.get_channel(TABEL_MECIURI_CH_ID)
             if tabel_ch:
-                # Căutăm primul loc liber de la 1 la 15
-                for i in range(1, 16):
+                # Căutăm primul loc liber de la 1 la 10
+                for i in range(1, 11):
                     if bracket_slots[i] == "[LIBER]":
                         bracket_slots[i] = f"{interaction.user.name}({game_id})"
                         break
@@ -189,11 +177,10 @@ def is_staff_or_special():
         return is_staff or ctx.author.id == SPECIAL_USER_ID or ctx.author.id == ctx.guild.owner_id
     return commands.check(predicate)
 
-# COMANDA CERUTA: #win1, #win2, etc.
 @bot.command()
 @is_staff_or_special()
 async def win(ctx, pozitie: int, member: discord.Member):
-    if 1 <= pozitie <= 15:
+    if 1 <= pozitie <= 17:
         p_data = tournament_data.get(member.id, {"game_id": "N/A"})
         bracket_slots[pozitie] = f"{member.name}({p_data['game_id']})"
         
@@ -202,7 +189,7 @@ async def win(ctx, pozitie: int, member: discord.Member):
             await tabel_ch.send(generate_bracket_text(member.name, p_data['game_id']))
             await ctx.send(f"✅ Jucătorul {member.mention} a fost pus pe poziția {pozitie}!")
     else:
-        await ctx.send("❌ Alege o poziție între 1 și 15.")
+        await ctx.send("❌ Alege o poziție între 1 și 17.")
 
 @bot.command()
 @is_staff_or_special()
@@ -252,7 +239,7 @@ async def admin_tr(ctx):
     async def reset_callback(inter):
         global tournament_players, banned_players, tournament_data, bracket_slots
         tournament_players, banned_players, tournament_data = [], [], {}
-        for i in range(1, 16): bracket_slots[i] = "[LIBER]"
+        for i in range(1, 18): bracket_slots[i] = "[LIBER]"
         await inter.response.send_message("🧹 Resetat!", ephemeral=True)
     btn_reset.callback = reset_callback
 
