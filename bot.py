@@ -6,6 +6,9 @@ import random
 import asyncio
 import os
 import re
+import io
+from PIL import Image, ImageDraw, ImageFont
+import requests
 
 # === SERVER PENTRU RENDER ===
 app = Flask('')
@@ -35,6 +38,9 @@ tournament_players = []
 banned_players = [] 
 tournament_data = {} 
 tournament_status = "închis"
+
+# Imaginea de tabel cerută
+TABEL_IMG_URL = "https://share.google/00odAdBTpHHwrtrii"
 
 # ================= BUTON CLOSE TICKET =================
 
@@ -136,16 +142,44 @@ async def win(ctx, member: discord.Member):
     tabel_ch = bot.get_channel(TABEL_MECIURI_CH_ID)
     if tabel_ch:
         p_data = tournament_data.get(member.id, {"game_id": "N/A"})
-        # Formatul cerut: Nume Discord + ID într-un pătrățel (code block)
-        visual_name = f"**{member.display_name}** `ID: {p_data['game_id']}`"
         
-        embed = discord.Embed(
-            title="🏆 ETAPĂ URMĂTOARE",
-            description=f"Jucătorul {visual_name} a câștigat și merge mai departe!",
-            color=discord.Color.gold()
-        )
-        await tabel_ch.send(embed=embed)
-        await ctx.message.add_reaction("✅")
+        # --- LOGICA DE DESENARE PE IMAGINE (Sistemul de tabel) ---
+        try:
+            # Descarcăm imaginea de fundal
+            response = requests.get(TABEL_IMG_URL)
+            img = Image.open(io.BytesIO(response.content)).convert("RGBA")
+            draw = ImageDraw.Draw(img)
+            
+            # Încercăm un font standard
+            try:
+                font = ImageFont.truetype("arial.ttf", 30)
+            except:
+                font = ImageFont.load_default()
+
+            # Textul: Numele lui de pe Discord și ID-ul de joc salvat la înscriere
+            display_text = f"{member.display_name}\nID: {p_data['game_id']}"
+            
+            # Coordonatele (X, Y) - Modifică (150, 200) ca să pice fix în prima căsuță
+            draw.text((150, 200), display_text, fill="white", font=font)
+
+            # Salvăm rezultatul
+            buffer = io.BytesIO()
+            img.save(buffer, format="PNG")
+            buffer.seek(0)
+            file = discord.File(fp=buffer, filename="tabel.png")
+
+            visual_name = f"**{member.display_name}** `ID: {p_data['game_id']}`"
+            embed = discord.Embed(
+                title="🏆 ETAPĂ URMĂTOARE",
+                description=f"Jucătorul {visual_name} a câștigat!",
+                color=discord.Color.gold()
+            )
+            embed.set_image(url="attachment://tabel.png")
+            await tabel_ch.send(embed=embed, file=file)
+            await ctx.message.add_reaction("✅")
+            
+        except Exception as e:
+            await ctx.send(f"⚠️ Eroare imagine: {e}")
 
 @bot.command()
 @is_staff_or_special()
@@ -170,7 +204,6 @@ async def setup_tournament(ctx):
                     "⚠️ **Asigură-te că ai screenshot-ul profilului pregătit!**",
         color=0xff0000
     )
-    embed.set_image(url="https://i.imgur.com/your_tournament_banner.png") # Poți pune un banner aici
     await ctx.send(embed=embed, view=TournamentJoinView())
 
 @bot.command()
