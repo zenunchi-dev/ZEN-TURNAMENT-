@@ -40,7 +40,7 @@ tournament_data = {}
 tournament_status = "închis"
 
 # --- LOGICĂ TABEL TEXT (Schema 10 Persoane) ---
-bracket_slots = {i: "[LIBER]" for i in range(1, 17)}
+bracket_slots = {i: "[LIBER]" for i in range(1, 18)}
 # Mapare vizuală: 11=WinA, 12=WinB, 13=WinC, 14=WinD, 15=WinSUS, 16=WinJOS, 17=REGE
 
 def generate_bracket_text(last_user="Nimeni", last_id="N/A"):
@@ -169,7 +169,7 @@ class TournamentJoinView(discord.ui.View):
         except asyncio.TimeoutError:
             await ticket_channel.delete()
 
-# ================= COMENZI STAFF (#win / #lose) =================
+# ================= COMENZI STAFF (#win / #set / #lose) =================
 
 def is_staff_or_special():
     async def predicate(ctx):
@@ -188,6 +188,21 @@ async def win(ctx, pozitie: int, member: discord.Member):
         if tabel_ch:
             await tabel_ch.send(generate_bracket_text(member.name, p_data['game_id']))
             await ctx.send(f"✅ Jucătorul {member.mention} a fost pus pe poziția {pozitie}!")
+    else:
+        await ctx.send("❌ Alege o poziție între 1 și 17.")
+
+@bot.command()
+@is_staff_or_special()
+async def set(ctx, pozitie: int, member: discord.Member):
+    # Această comandă face același lucru ca #win, dar cu numele cerut de tine
+    if 1 <= pozitie <= 17:
+        p_data = tournament_data.get(member.id, {"game_id": "N/A"})
+        bracket_slots[pozitie] = f"{member.name}({p_data['game_id']})"
+        
+        tabel_ch = bot.get_channel(TABEL_MECIURI_CH_ID)
+        if tabel_ch:
+            await tabel_ch.send(generate_bracket_text(member.name, p_data['game_id']))
+            await ctx.send(f"✅ Poziția {pozitie} a fost actualizată pentru {member.mention}!")
     else:
         await ctx.send("❌ Alege o poziție între 1 și 17.")
 
