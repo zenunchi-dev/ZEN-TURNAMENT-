@@ -23,14 +23,14 @@ def keep_alive():
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="#", intents=intents)
 
-# ID-URI REVIZUITE
+# ID-URI REVIZUITE (ACTUALIZATE CONFORM CERINȚEI)
 TOURNAMENT_CATEGORY_ID = 1481418592217206885
 LOG_CHANNEL_ID = 1481418592217206885
 TABEL_MECIURI_CH_ID = 1481418744956850392 
 STAFF_ROLE_ID = 1481794622752555072       
 OWNER_ID = 1466541122636611759            
-REJECT_ROLE_ID = 1481789988654940272      # ID actualizat
-TOURNAMENT_ROLE_ID = 1481418649196560414  # ID rol înscriere
+REJECT_ROLE_ID = 1481789988654940272      # ID actualizat pentru Reject
+TOURNAMENT_ROLE_ID = 1481418649196560414  # ID rol turneu (pentru verificare)
 SPECIAL_USER_ID = 810609759324471306     
 
 # State Turneu
@@ -68,7 +68,7 @@ def generate_bracket_text(last_user="Nimeni", last_id="N/A"):
         f"           ├── {bracket_slots[14]} ──┘\n"
         f"{bracket_slots[9]} ──┘\n\n"
         "=========================================\n"
-        f"Ultimul update: Jucătorul {last_user} (ID: {last_id})\n"
+        f"Ultimul update: Jucătorul {last_user}\n"
         "```"
     )
     return text
@@ -107,10 +107,6 @@ class StaffReviewView(discord.ui.View):
         bracket_slots[slot] = f"{self.player.name}"
         tournament_players.append(self.player.id)
         
-        # Adaugă rolul de turneu la acceptare
-        tr_role = interaction.guild.get_role(TOURNAMENT_ROLE_ID)
-        if tr_role: await self.player.add_roles(tr_role)
-
         await update_table(self.player.name, "ID")
         await interaction.response.send_message(f"✅ Adăugat pe locul {slot}!")
         self.stop()
@@ -127,7 +123,7 @@ class StaffReviewView(discord.ui.View):
             await self.player.add_roles(rej_role)
             await interaction.response.send_message(f"❌ Respins. Rolul va fi scos peste 12 ore.")
             async def remove_role_later(member, role_obj):
-                await asyncio.sleep(43200)
+                await asyncio.sleep(43200) # 12h
                 try: await member.remove_roles(role_obj)
                 except: pass
             bot.loop.create_task(remove_role_later(self.player, rej_role))
@@ -145,7 +141,7 @@ class TicketControlView(discord.ui.View):
         is_owner = interaction.user.id == OWNER_ID
         if is_staff or is_owner or interaction.user.id == SPECIAL_USER_ID:
             await interaction.response.send_message("🔒 Se închide...")
-            await asyncio.sleep(3)
+            await asyncio.sleep(5)
             await interaction.channel.delete()
 
 # ================= SISTEM ÎNSCRIERE =================
@@ -160,18 +156,18 @@ class TournamentJoinView(discord.ui.View):
         if tournament_status != "înscrieri":
             return await interaction.response.send_message("❌ Înscrierile sunt închise!", ephemeral=True)
         
-        # Verificare dacă are deja rolul de turneu (nu mai poate înscrie)
+        # Verificare dacă are rolul de turneu (pentru a nu se înscrie de două ori)
         if any(role.id == TOURNAMENT_ROLE_ID for role in interaction.user.roles):
-            return await interaction.response.send_message("❌ Ești deja înscris în turneu!", ephemeral=True)
+            return await interaction.response.send_message("❌ Ești deja înscris!", ephemeral=True)
 
         guild = interaction.guild
-        staff_role = guild.get_role(STAFF_ROLE_ID)
         category = guild.get_channel(TOURNAMENT_CATEGORY_ID)
         
+        # Permisiuni Ticket (Doar Staff, Owner și Utilizator)
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(view_channel=False),
             interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True, attach_files=True),
-            staff_role: discord.PermissionOverwrite(view_channel=True, send_messages=True),
+            guild.get_role(STAFF_ROLE_ID): discord.PermissionOverwrite(view_channel=True, send_messages=True),
             guild.get_member(OWNER_ID): discord.PermissionOverwrite(view_channel=True, send_messages=True),
             guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, manage_channels=True)
         }
@@ -179,9 +175,10 @@ class TournamentJoinView(discord.ui.View):
         ticket_channel = await guild.create_text_channel(name=f"🎫-{interaction.user.name}", category=category, overwrites=overwrites)
         await interaction.response.send_message(f"✅ Ticket creat: {ticket_channel.mention}", ephemeral=True)
         
-        embed = discord.Embed(title="📝 ÎNSCRIERE", description="Trimite screenshot-ul de profil. Staff-ul va verifica cererea.", color=0x3498db)
+        # Butoanele apar imediat
+        embed = discord.Embed(title="📝 ÎNSCRIERE", description="Trimite screenshot-ul. Staff-ul va verifica cererea folosind butoanele de mai jos.", color=0x3498db)
         await ticket_channel.send(content=f"{interaction.user.mention}", embed=embed, view=StaffReviewView(interaction.user, "N/A"))
-        await ticket_channel.send("Administrare ticket:", view=TicketControlView())
+        await ticket_channel.send("Control ticket:", view=TicketControlView())
 
 # ================= COMENZI ADMIN =================
 
@@ -189,7 +186,7 @@ class TournamentJoinView(discord.ui.View):
 @commands.is_owner()
 async def setup_tournament(ctx):
     await ctx.message.delete()
-    embed = discord.Embed(title="🏆 STANDOFF 2 - TOURNAMENT 🏆", description="Apasă butonul de mai jos pentru a deschide un ticket.", color=0xff0000)
+    embed = discord.Embed(title="🏆 STANDOFF 2 - TOURNAMENT 🏆", description="Apasă butonul pentru înscriere.", color=0xff0000)
     await ctx.send(embed=embed, view=TournamentJoinView())
 
 @bot.command()
@@ -215,7 +212,7 @@ async def admin_tr(ctx):
         tournament_players = []
         last_table_msg_id = None
         for i in range(1, 18): bracket_slots[i] = "[LIBER]"
-        await inter.response.send_message("🧹 Reset!", ephemeral=True)
+        await inter.response.send_message("🧹 Resetat!", ephemeral=True)
     btn_reset.callback = reset_callback
     view.add_item(btn_start); view.add_item(btn_stop); view.add_item(btn_reset)
     await ctx.send(embed=embed, view=view, ephemeral=True)
@@ -223,7 +220,7 @@ async def admin_tr(ctx):
 @bot.event
 async def on_ready():
     bot.add_view(TournamentJoinView())
-    print(f"✅ Botul este pregătit!")
+    print(f"✅ Bot Online!")
 
 keep_alive()
 bot.run(os.getenv("DISCORD_TOKEN"))
