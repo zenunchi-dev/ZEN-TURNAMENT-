@@ -2,7 +2,6 @@ import discord
 from discord.ext import commands, tasks
 from flask import Flask
 from threading import Thread
-import random
 import asyncio
 import os
 import re
@@ -23,24 +22,20 @@ def keep_alive():
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="#", intents=intents)
 
-# ID-URI (păstrate exact)
+# ID-URI (neschimbate)
 TICKET_CATEGORY_ID      = 1481418592217206885
 TABEL_MECIURI_CH_ID     = 1481418744956850392 
 STAFF_ROLE_ID           = 1466541122636611759
 OWNER_ID                = 1466541122636611759
 REJECT_ROLE_ID          = 1481789988654940272
 ACCEPT_ROLE_ID          = 1484534027342974976
-SPECIAL_USER_ID         = 810609759324471306
+CANAL_INSCRIERI_ID      = 1481418649196560414   # canalul cu butonul
 
-# Canalul care devine invizibil după 8 înscrieri
-CANAL_INSCRIERI_ID      = 1481418649196560414
-
-# Stare înscrieri + contor
+# Stare înscrieri (fără contor/limită)
 inscrieri_deschise      = False
-numar_inscrieri         = 0
-MAX_INSCRIERI           = 8
+inscriere_msg_id        = None  # pentru mesajul persistent cu buton
 
-# Model înscriere (neschimbat)
+# Model formular (neschimbat)
 MODEL_INSCRIERE = """
 **Înscriere ZEN 2v2**
 
@@ -59,7 +54,7 @@ Discord: (_______________)
 (Trimite formularul completat mai jos)
 """
 
-# ================= VIEWS (neschimbate) =================
+# ================= VIEWS =================
 
 class StaffTicketView(discord.ui.View):
     def __init__(self):
@@ -70,38 +65,34 @@ class StaffTicketView(discord.ui.View):
         if not any(r.id == STAFF_ROLE_ID for r in interaction.user.roles):
             return await interaction.response.send_message("Doar staff!", ephemeral=True)
 
-        user = interaction.channel.topic
-        if not user: return
-        member = interaction.guild.get_member(int(user))
+        user_id = interaction.channel.topic
+        if not user_id: return
+        member = interaction.guild.get_member(int(user_id))
 
-        rol_accept = interaction.guild.get_role(ACCEPT_ROLE_ID)
-        if rol_accept and member:
-            await member.add_roles(rol_accept)
-            await interaction.response.send_message(f"Acceptat! Rol {rol_accept.name} acordat.")
+        rol = interaction.guild.get_role(ACCEPT_ROLE_ID)
+        if rol and member:
+            await member.add_roles(rol)
+            await interaction.response.send_message(f"Acceptat! Rol acordat – se elimină automat după 24h.")
             await asyncio.sleep(24 * 3600)
-            try:
-                await member.remove_roles(rol_accept)
-            except:
-                pass
+            try: await member.remove_roles(rol)
+            except: pass
 
     @discord.ui.button(label="REJECTĂ", style=discord.ButtonStyle.danger, emoji="❌")
     async def reject(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not any(r.id == STAFF_ROLE_ID for r in interaction.user.roles):
             return await interaction.response.send_message("Doar staff!", ephemeral=True)
 
-        user = interaction.channel.topic
-        if not user: return
-        member = interaction.guild.get_member(int(user))
+        user_id = interaction.channel.topic
+        if not user_id: return
+        member = interaction.guild.get_member(int(user_id))
 
-        rol_reject = interaction.guild.get_role(REJECT_ROLE_ID)
-        if rol_reject and member:
-            await member.add_roles(rol_reject)
-            await interaction.response.send_message(f"Respins! Rol {rol_reject.name} acordat.")
+        rol = interaction.guild.get_role(REJECT_ROLE_ID)
+        if rol and member:
+            await member.add_roles(rol)
+            await interaction.response.send_message(f"Respins! Rol acordat – se elimină automat după 24h.")
             await asyncio.sleep(24 * 3600)
-            try:
-                await member.remove_roles(rol_reject)
-            except:
-                pass
+            try: await member.remove_roles(rol)
+            except: pass
 
     @discord.ui.button(label="ÎNCHIDE", style=discord.ButtonStyle.secondary, emoji="🔒")
     async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -111,7 +102,40 @@ class StaffTicketView(discord.ui.View):
         await asyncio.sleep(5)
         await interaction.channel.delete()
 
-# ================= COMENZI + LOGICĂ ÎNSCRIERI =================
+class InscriereButtonView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="🏆 ÎNSCRIE-TE", style=discord.ButtonStyle.success, emoji="🏆", custom_id="zen_inscriere_2v2")
+    async def inscriere(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not inscrieri_deschise:
+            return await interaction.response.send_message("Înscrierile sunt închise momentan.", ephemeral=True)
+
+        guild = interaction.guild
+        category = guild.get_channel(TICKET_CATEGORY_ID)
+
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
+            guild.get_role(STAFF_ROLE_ID): discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
+        }
+
+        channel = await guild.create_text_channel(
+            name=f"ticket-{interaction.user.name}",
+            category=category,
+            topic=str(interaction.user.id),
+            overwrites=overwrites
+        )
+
+        await channel.send(
+            f"{interaction.user.mention} – completează formularul de înscriere:",
+            content=MODEL_INSCRIERE,
+            view=StaffTicketView()
+        )
+
+        await interaction.response.send_message(f"Ticket-ul tău a fost creat: {channel.mention}", ephemeral=True)
+
+# ================= COMENZI =================
 
 @bot.command()
 async def ok(ctx):
@@ -123,69 +147,29 @@ async def ok(ctx):
     status = "**DESCHISE**" if inscrieri_deschise else "**ÎNCHISE**"
     await ctx.send(f"Înscrierile sunt acum {status}.")
 
-@bot.event
-async def on_message(message):
-    if message.author.bot: return
-    await bot.process_commands(message)
+@bot.command()
+async def setup_inscrieri(ctx):
+    if ctx.author.id != OWNER_ID and not any(r.id == STAFF_ROLE_ID for r in ctx.author.roles):
+        return await ctx.send("Doar staff/owner poate seta mesajul cu buton.")
 
-    if not inscrieri_deschise:
-        return
-
-    if "ticket" not in message.content.lower():
-        return
-
-    global numar_inscrieri
-    if numar_inscrieri >= MAX_INSCRIERI:
-        await message.reply("Locurile s-au ocupat (maxim 8). Înscrieri închise.")
-        
-        # Facem canalul invizibil (nu ștergem)
-        try:
-            canal_inscrieri = message.guild.get_channel(CANAL_INSCRIERI_ID)
-            if canal_inscrieri:
-                # Deny view pentru toată lumea (@everyone)
-                await canal_inscrieri.set_permissions(
-                    message.guild.default_role,
-                    overwrite=discord.PermissionOverwrite(view_channel=False)
-                )
-                # Dacă vrei să rămână vizibil doar pentru staff, adaugă asta:
-                await canal_inscrieri.set_permissions(
-                    message.guild.get_role(STAFF_ROLE_ID),
-                    overwrite=discord.PermissionOverwrite(view_channel=True)
-                )
-                print(f"Canalul {CANAL_INSCRIERI_ID} a devenit invizibil după 8 înscrieri.")
-        except Exception as e:
-            print(f"Eroare la modificarea permisiunilor: {e}")
-        return
-
-    guild = message.guild
-    category = guild.get_channel(TICKET_CATEGORY_ID)
-
-    overwrites = {
-        guild.default_role: discord.PermissionOverwrite(view_channel=False),
-        message.author: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
-        guild.get_role(STAFF_ROLE_ID): discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
-    }
-
-    channel = await guild.create_text_channel(
-        name=f"ticket-{message.author.name}",
-        category=category,
-        topic=str(message.author.id),
-        overwrites=overwrites
+    embed = discord.Embed(
+        title="🏆 ZEN Tournament 2v2 – Înscrieri",
+        description="Apasă butonul de mai jos pentru a te înscrie.\nÎnscrierile sunt deschise prin comanda #ok.",
+        color=0x00ff00
     )
+    embed.set_footer(text="Completează formularul în ticket-ul privat după ce apeși butonul!")
 
-    numar_inscrieri += 1
-
-    await channel.send(
-        f"{message.author.mention} – completează formularul de înscriere:",
-        content=MODEL_INSCRIERE,
-        view=StaffTicketView()
-    )
-
-    await message.reply(f"Ticket creat: {channel.mention}", delete_after=10)
+    view = InscriereButtonView()
+    msg = await ctx.send(embed=embed, view=view)
+    global inscriere_msg_id
+    inscriere_msg_id = msg.id
+    await ctx.send("Mesaj cu buton creat! Folosește #ok pentru a deschide/închide înscrierile.")
 
 @bot.event
 async def on_ready():
     print(f"{bot.user} → Online | Prefix: #")
+    bot.add_view(InscriereButtonView())
+    bot.add_view(StaffTicketView())
     keep_alive()
 
 bot.run(os.getenv("DISCORD_TOKEN"))
