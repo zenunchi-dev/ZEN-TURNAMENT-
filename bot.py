@@ -23,11 +23,11 @@ bot = commands.Bot(command_prefix="#", intents=intents)
 
 # ID-URI
 TICKET_CATEGORY_ID      = 1481418592217206885
-STAFF_ROLE_ID           = 1466541122636611759          # rol care poate apăsa butoanele
+STAFF_ROLE_ID           = 1466541122636611759
 ACCEPT_ROLE_ID          = 1484534027342974976
 REJECT_ROLE_ID          = 1481789988654940272
 
-# Model formular (exact cum l-ai pus)
+# Model formular
 MODEL_INSCRIERE = """
 **Înscriere ZEN 2v2**
 
@@ -126,10 +126,9 @@ class InscriereButtonView(discord.ui.View):
             overwrites=overwrites
         )
 
-        # Trimite automat modelul + mențiune la creator + view-ul cu butoane
+        # Trimite automat: mențiune + model + view cu butoane
         await channel.send(
-            f"{interaction.user.mention}",
-            content=MODEL_INSCRIERE,
+            f"{interaction.user.mention}\n\n{MODEL_INSCRIERE}",
             view=TicketControlView()
         )
 
@@ -139,7 +138,7 @@ class InscriereButtonView(discord.ui.View):
 
 @bot.command()
 async def setup_inscrieri(ctx):
-    if ctx.author.id != OWNER_ID and not any(r.id == STAFF_ROLE_ID for r in ctx.author.roles):
+    if ctx.author.id != 1466541122636611759 and not any(r.id == STAFF_ROLE_ID for r in ctx.author.roles):
         return await ctx.send("Doar staff/owner poate seta mesajul cu buton.")
 
     embed = discord.Embed(
@@ -156,7 +155,7 @@ async def setup_inscrieri(ctx):
 async def on_ready():
     print(f"{bot.user} → Online | Prefix: #")
     bot.add_view(InscriereButtonView())
-    bot.add_view(TicketControlView())  # View persistent pentru butoanele din ticket
+    bot.add_view(TicketControlView())
     keep_alive()
 
 bot.run(os.getenv("DISCORD_TOKEN"))
