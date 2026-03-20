@@ -31,10 +31,10 @@ REJECT_ROLE_ID          = 1481789988654940272
 ACCEPT_ROLE_ID          = 1484534027342974976
 CANAL_INSCRIERI_ID      = 1481418649196560414   # canalul unde pui mesajul cu buton
 
-# Stare înscrieri (fără limită)
+# Stare înscrieri
 inscrieri_deschise      = False
 
-# Model formular
+# Model formular (neschimbat)
 MODEL_INSCRIERE = """
 **Înscriere ZEN 2v2**
 
@@ -152,11 +152,10 @@ async def setup_inscrieri(ctx):
         return await ctx.send("Doar staff/owner poate seta mesajul cu buton.")
 
     embed = discord.Embed(
-        title="🏆 ZEN Tournament 2v2 – Înscrieri",
-        description="Apasă butonul de mai jos pentru a te înscrie.\nÎnscrierile se deschid cu comanda #ok.",
+        title="ZEN Tournament 2v2",
+        description="Apasă butonul de mai jos pentru a te înscrie în turneu.",
         color=0x00ff00
     )
-    embed.set_footer(text="Completează formularul în ticket-ul privat!")
 
     view = InscriereButtonView()
     await ctx.send(embed=embed, view=view)
