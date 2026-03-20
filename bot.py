@@ -31,10 +31,7 @@ REJECT_ROLE_ID          = 1481789988654940272
 ACCEPT_ROLE_ID          = 1484534027342974976
 CANAL_INSCRIERI_ID      = 1481418649196560414   # canalul unde pui mesajul cu buton
 
-# Stare înscrieri
-inscrieri_deschise      = False
-
-# Model formular (neschimbat)
+# Model formular
 MODEL_INSCRIERE = """
 **Înscriere ZEN 2v2**
 
@@ -59,7 +56,7 @@ class StaffTicketView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="ACCEPTĂ", style=discord.ButtonStyle.success, emoji="✅", custom_id="zen_accept")
+    @discord.ui.button(label="ACCEPTĂ", style=discord.ButtonStyle.success, emoji="✅", custom_id="zen_accept_ticket")
     async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not any(r.id == STAFF_ROLE_ID for r in interaction.user.roles):
             return await interaction.response.send_message("Doar staff!", ephemeral=True)
@@ -76,7 +73,7 @@ class StaffTicketView(discord.ui.View):
             try: await member.remove_roles(rol)
             except: pass
 
-    @discord.ui.button(label="REJECTĂ", style=discord.ButtonStyle.danger, emoji="❌", custom_id="zen_reject")
+    @discord.ui.button(label="REJECTĂ", style=discord.ButtonStyle.danger, emoji="❌", custom_id="zen_reject_ticket")
     async def reject(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not any(r.id == STAFF_ROLE_ID for r in interaction.user.roles):
             return await interaction.response.send_message("Doar staff!", ephemeral=True)
@@ -93,7 +90,7 @@ class StaffTicketView(discord.ui.View):
             try: await member.remove_roles(rol)
             except: pass
 
-    @discord.ui.button(label="ÎNCHIDE", style=discord.ButtonStyle.secondary, emoji="🔒", custom_id="zen_close")
+    @discord.ui.button(label="ÎNCHIDE", style=discord.ButtonStyle.secondary, emoji="🔒", custom_id="zen_close_ticket")
     async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not any(r.id == STAFF_ROLE_ID for r in interaction.user.roles):
             return await interaction.response.send_message("Doar staff!", ephemeral=True)
@@ -107,9 +104,6 @@ class InscriereButtonView(discord.ui.View):
 
     @discord.ui.button(label="🏆 ÎNSCRIE-TE", style=discord.ButtonStyle.success, emoji="🏆", custom_id="zen_inscriere_2v2")
     async def inscriere(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not inscrieri_deschise:
-            return await interaction.response.send_message("Înscrierile sunt închise momentan.", ephemeral=True)
-
         guild = interaction.guild
         category = guild.get_channel(TICKET_CATEGORY_ID)
 
@@ -135,16 +129,6 @@ class InscriereButtonView(discord.ui.View):
         await interaction.response.send_message(f"Ticket creat: {channel.mention}", ephemeral=True)
 
 # ================= COMENZI =================
-
-@bot.command()
-async def ok(ctx):
-    global inscrieri_deschise
-    if ctx.author.id != OWNER_ID and not any(r.id == STAFF_ROLE_ID for r in ctx.author.roles):
-        return await ctx.send("Doar persoana autorizată poate folosi #ok.")
-
-    inscrieri_deschise = not inscrieri_deschise
-    status = "**DESCHISE**" if inscrieri_deschise else "**ÎNCHISE**"
-    await ctx.send(f"Înscrierile sunt acum {status}.")
 
 @bot.command()
 async def setup_inscrieri(ctx):
