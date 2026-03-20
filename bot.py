@@ -23,7 +23,7 @@ bot = commands.Bot(command_prefix="#", intents=intents)
 
 # ID-URI
 TICKET_CATEGORY_ID      = 1481418592217206885
-STAFF_ROLE_ID           = 1466541122636611759
+STAFF_ROLE_ID           = 1466541122636611759          # rol staff care vede și apasă butoane
 ACCEPT_ROLE_ID          = 1484534027342974976
 REJECT_ROLE_ID          = 1481789988654940272
 
@@ -59,12 +59,12 @@ class TicketControlView(discord.ui.View):
 
         user_id = interaction.channel.topic
         if not user_id: return
-        member = interaction.guild.get_member(int(user_id))
+        member = interaction.guild.get_member(int(user_id))  # persoana care a creat ticket-ul
 
         rol = interaction.guild.get_role(ACCEPT_ROLE_ID)
         if rol and member:
             await member.add_roles(rol)
-            await interaction.response.send_message(f"{interaction.user.mention} a acceptat participantul! Rol acordat.")
+            await interaction.response.send_message(f"{interaction.user.mention} a **acceptat** participantul {member.mention}! Rol acordat.")
             await asyncio.sleep(24 * 3600)
             try: await member.remove_roles(rol)
             except: pass
@@ -78,12 +78,12 @@ class TicketControlView(discord.ui.View):
 
         user_id = interaction.channel.topic
         if not user_id: return
-        member = interaction.guild.get_member(int(user_id))
+        member = interaction.guild.get_member(int(user_id))  # persoana care a creat ticket-ul
 
         rol = interaction.guild.get_role(REJECT_ROLE_ID)
         if rol and member:
             await member.add_roles(rol)
-            await interaction.response.send_message(f"{interaction.user.mention} a respins participantul! Rol acordat.")
+            await interaction.response.send_message(f"{interaction.user.mention} a **respins** participantul {member.mention}! Rol acordat.")
             await asyncio.sleep(24 * 3600)
             try: await member.remove_roles(rol)
             except: pass
@@ -107,6 +107,10 @@ class InscriereButtonView(discord.ui.View):
 
     @discord.ui.button(label="🏆 ÎNSCRIE-TE", style=discord.ButtonStyle.success, emoji="🏆", custom_id="zen_inscriere_2v2")
     async def inscriere(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Verificăm dacă are rol de rejectat → blocăm
+        if any(r.id == REJECT_ROLE_ID for r in interaction.user.roles):
+            return await interaction.response.send_message("Ai fost respins recent și nu poți crea ticket nou.", ephemeral=True)
+
         guild = interaction.guild
         category = guild.get_channel(TICKET_CATEGORY_ID)
 
