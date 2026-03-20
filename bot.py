@@ -7,7 +7,7 @@ import asyncio
 import os
 import re
 
-# === SERVER PENTRU RENDER / RAILWAY ===
+# === SERVER PENTRU RAILWAY ===
 app = Flask('')
 @app.route('/')
 def home(): return "Bot Online"
@@ -23,21 +23,24 @@ def keep_alive():
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="#", intents=intents)
 
-# ID-URI
+# ID-URI (păstrate exact)
 TICKET_CATEGORY_ID      = 1481418592217206885
 TABEL_MECIURI_CH_ID     = 1481418744956850392 
-STAFF_ROLE_ID           = 1466541122636611759        # rol care vede ticketele + comandă #ok
+STAFF_ROLE_ID           = 1466541122636611759
 OWNER_ID                = 1466541122636611759
 REJECT_ROLE_ID          = 1481789988654940272
-ACCEPT_ROLE_ID          = 1484534027342974976        # fost TOURNAMENT_ROLE_ID ?
+ACCEPT_ROLE_ID          = 1484534027342974976
 SPECIAL_USER_ID         = 810609759324471306
 
-# Stare înscrieri
+# Canalul care devine invizibil după 8 înscrieri
+CANAL_INSCRIERI_ID      = 1481418649196560414
+
+# Stare înscrieri + contor
 inscrieri_deschise      = False
 numar_inscrieri         = 0
 MAX_INSCRIERI           = 8
 
-# === MODEL ÎNSCRIERE ===
+# Model înscriere (neschimbat)
 MODEL_INSCRIERE = """
 **Înscriere ZEN 2v2**
 
@@ -56,7 +59,7 @@ Discord: (_______________)
 (Trimite formularul completat mai jos)
 """
 
-# ================= VIEWS =================
+# ================= VIEWS (neschimbate) =================
 
 class StaffTicketView(discord.ui.View):
     def __init__(self):
@@ -67,7 +70,7 @@ class StaffTicketView(discord.ui.View):
         if not any(r.id == STAFF_ROLE_ID for r in interaction.user.roles):
             return await interaction.response.send_message("Doar staff!", ephemeral=True)
 
-        user = interaction.channel.topic  # vom pune user id în topic
+        user = interaction.channel.topic
         if not user: return
         member = interaction.guild.get_member(int(user))
 
@@ -108,7 +111,7 @@ class StaffTicketView(discord.ui.View):
         await asyncio.sleep(5)
         await interaction.channel.delete()
 
-# ================= COMENZI =================
+# ================= COMENZI + LOGICĂ ÎNSCRIERI =================
 
 @bot.command()
 async def ok(ctx):
@@ -118,19 +121,41 @@ async def ok(ctx):
 
     inscrieri_deschise = not inscrieri_deschise
     status = "**DESCHISE**" if inscrieri_deschise else "**ÎNCHISE**"
-    await ctx.send(f"Inscrierile sunt acum {status}.")
+    await ctx.send(f"Înscrierile sunt acum {status}.")
 
 @bot.event
 async def on_message(message):
     if message.author.bot: return
     await bot.process_commands(message)
 
-    if not inscrieri_deschise: return
-    if "ticket" not in message.content.lower(): return
+    if not inscrieri_deschise:
+        return
+
+    if "ticket" not in message.content.lower():
+        return
 
     global numar_inscrieri
     if numar_inscrieri >= MAX_INSCRIERI:
-        return await message.reply("Locurile s-au ocupat (maxim 8). Înscrieri închise.")
+        await message.reply("Locurile s-au ocupat (maxim 8). Înscrieri închise.")
+        
+        # Facem canalul invizibil (nu ștergem)
+        try:
+            canal_inscrieri = message.guild.get_channel(CANAL_INSCRIERI_ID)
+            if canal_inscrieri:
+                # Deny view pentru toată lumea (@everyone)
+                await canal_inscrieri.set_permissions(
+                    message.guild.default_role,
+                    overwrite=discord.PermissionOverwrite(view_channel=False)
+                )
+                # Dacă vrei să rămână vizibil doar pentru staff, adaugă asta:
+                await canal_inscrieri.set_permissions(
+                    message.guild.get_role(STAFF_ROLE_ID),
+                    overwrite=discord.PermissionOverwrite(view_channel=True)
+                )
+                print(f"Canalul {CANAL_INSCRIERI_ID} a devenit invizibil după 8 înscrieri.")
+        except Exception as e:
+            print(f"Eroare la modificarea permisiunilor: {e}")
+        return
 
     guild = message.guild
     category = guild.get_channel(TICKET_CATEGORY_ID)
