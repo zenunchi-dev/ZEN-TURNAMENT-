@@ -1,10 +1,9 @@
 import discord
-from discord.ext import commands, tasks
+from discord.ext import commands
 from flask import Flask
 from threading import Thread
 import asyncio
 import os
-import re
 
 # === SERVER PENTRU RAILWAY ===
 app = Flask('')
@@ -24,14 +23,11 @@ bot = commands.Bot(command_prefix="#", intents=intents)
 
 # ID-URI
 TICKET_CATEGORY_ID      = 1481418592217206885
-TABEL_MECIURI_CH_ID     = 1481418744956850392 
-STAFF_ROLE_ID           = 1466541122636611759
-OWNER_ID                = 1466541122636611759
-REJECT_ROLE_ID          = 1481789988654940272
+STAFF_ROLE_ID           = 1466541122636611759          # rol care poate apăsa butoanele
 ACCEPT_ROLE_ID          = 1484534027342974976
-CANAL_INSCRIERI_ID      = 1481418649196560414   # canalul unde pui mesajul cu buton
+REJECT_ROLE_ID          = 1481789988654940272
 
-# Model formular
+# Model formular (exact cum l-ai pus)
 MODEL_INSCRIERE = """
 **Înscriere ZEN 2v2**
 
@@ -50,16 +46,16 @@ Discord: (_______________)
 (Trimite formularul completat mai jos)
 """
 
-# ================= VIEWS =================
+# ================= VIEW PENTRU TICKET =================
 
-class StaffTicketView(discord.ui.View):
+class TicketControlView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="ACCEPTĂ", style=discord.ButtonStyle.success, emoji="✅", custom_id="zen_accept_ticket")
+    @discord.ui.button(label="ACCEPTAT", style=discord.ButtonStyle.success, emoji="✅", custom_id="zen_accept_ticket")
     async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not any(r.id == STAFF_ROLE_ID for r in interaction.user.roles):
-            return await interaction.response.send_message("Doar staff!", ephemeral=True)
+            return await interaction.response.send_message("Doar staff-ul poate folosi acest buton!", ephemeral=True)
 
         user_id = interaction.channel.topic
         if not user_id: return
@@ -68,15 +64,17 @@ class StaffTicketView(discord.ui.View):
         rol = interaction.guild.get_role(ACCEPT_ROLE_ID)
         if rol and member:
             await member.add_roles(rol)
-            await interaction.response.send_message(f"Acceptat! Rol acordat – se elimină după 24h.")
+            await interaction.response.send_message(f"{interaction.user.mention} a acceptat participantul! Rol acordat.")
             await asyncio.sleep(24 * 3600)
             try: await member.remove_roles(rol)
             except: pass
 
-    @discord.ui.button(label="REJECTĂ", style=discord.ButtonStyle.danger, emoji="❌", custom_id="zen_reject_ticket")
+        await interaction.response.defer()
+
+    @discord.ui.button(label="REJECTAT", style=discord.ButtonStyle.danger, emoji="❌", custom_id="zen_reject_ticket")
     async def reject(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not any(r.id == STAFF_ROLE_ID for r in interaction.user.roles):
-            return await interaction.response.send_message("Doar staff!", ephemeral=True)
+            return await interaction.response.send_message("Doar staff-ul poate folosi acest buton!", ephemeral=True)
 
         user_id = interaction.channel.topic
         if not user_id: return
@@ -85,18 +83,23 @@ class StaffTicketView(discord.ui.View):
         rol = interaction.guild.get_role(REJECT_ROLE_ID)
         if rol and member:
             await member.add_roles(rol)
-            await interaction.response.send_message(f"Respins! Rol acordat – se elimină după 24h.")
+            await interaction.response.send_message(f"{interaction.user.mention} a respins participantul! Rol acordat.")
             await asyncio.sleep(24 * 3600)
             try: await member.remove_roles(rol)
             except: pass
 
-    @discord.ui.button(label="ÎNCHIDE", style=discord.ButtonStyle.secondary, emoji="🔒", custom_id="zen_close_ticket")
+        await interaction.response.defer()
+
+    @discord.ui.button(label="Închide Ticket", style=discord.ButtonStyle.secondary, emoji="🔒", custom_id="zen_close_ticket")
     async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not any(r.id == STAFF_ROLE_ID for r in interaction.user.roles):
-            return await interaction.response.send_message("Doar staff!", ephemeral=True)
-        await interaction.response.send_message("Ticket închis în 5 secunde...")
+            return await interaction.response.send_message("Doar staff-ul poate închide ticket-ul!", ephemeral=True)
+
+        await interaction.response.send_message("Ticket-ul se închide în 5 secunde...")
         await asyncio.sleep(5)
         await interaction.channel.delete()
+
+# ================= VIEW PENTRU ÎNSCRIERE =================
 
 class InscriereButtonView(discord.ui.View):
     def __init__(self):
@@ -106,6 +109,9 @@ class InscriereButtonView(discord.ui.View):
     async def inscriere(self, interaction: discord.Interaction, button: discord.ui.Button):
         guild = interaction.guild
         category = guild.get_channel(TICKET_CATEGORY_ID)
+
+        if not category:
+            return await interaction.response.send_message("Categoria de tickete nu a fost găsită!", ephemeral=True)
 
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(view_channel=False),
@@ -120,13 +126,14 @@ class InscriereButtonView(discord.ui.View):
             overwrites=overwrites
         )
 
+        # Trimite automat modelul + mențiune la creator + view-ul cu butoane
         await channel.send(
-            f"{interaction.user.mention} – completează formularul de înscriere:",
+            f"{interaction.user.mention}",
             content=MODEL_INSCRIERE,
-            view=StaffTicketView()
+            view=TicketControlView()
         )
 
-        await interaction.response.send_message(f"Ticket creat: {channel.mention}", ephemeral=True)
+        await interaction.response.send_message(f"Ticket-ul tău a fost creat: {channel.mention}", ephemeral=True)
 
 # ================= COMENZI =================
 
@@ -149,7 +156,7 @@ async def setup_inscrieri(ctx):
 async def on_ready():
     print(f"{bot.user} → Online | Prefix: #")
     bot.add_view(InscriereButtonView())
-    bot.add_view(StaffTicketView())
+    bot.add_view(TicketControlView())  # View persistent pentru butoanele din ticket
     keep_alive()
 
 bot.run(os.getenv("DISCORD_TOKEN"))
