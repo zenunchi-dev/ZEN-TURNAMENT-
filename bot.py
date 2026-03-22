@@ -8,7 +8,7 @@ import io
 import aiohttp
 from PIL import Image, ImageDraw, ImageFont
 
-# === SERVER PENTRU RAILWAY ===
+# === SERVER PENTRU RAILWAY (Keep Alive) ===
 app = Flask('')
 @app.route('/')
 def home(): return "Bot Online"
@@ -124,9 +124,6 @@ class TicketControlView(discord.ui.View):
         if rol and member:
             await member.add_roles(rol)
             await interaction.response.send_message(f"{interaction.user.mention} a **acceptat** participantul {member.mention}! Rol acordat.")
-            await asyncio.sleep(24 * 3600)
-            try: await member.remove_roles(rol)
-            except: pass
         await interaction.response.defer()
 
     @discord.ui.button(label="REJECTAT", style=discord.ButtonStyle.danger, emoji="❌", custom_id="zen_reject_ticket")
@@ -140,9 +137,6 @@ class TicketControlView(discord.ui.View):
         if rol and member:
             await member.add_roles(rol)
             await interaction.response.send_message(f"{interaction.user.mention} a **respins** participantul {member.mention}! Rol acordat.")
-            await asyncio.sleep(24 * 3600)
-            try: await member.remove_roles(rol)
-            except: pass
         await interaction.response.defer()
 
     @discord.ui.button(label="Închide Ticket", style=discord.ButtonStyle.secondary, emoji="🔒", custom_id="zen_close_ticket")
@@ -171,7 +165,7 @@ class InscriereButtonView(discord.ui.View):
         await channel.send(f"{interaction.user.mention}\n\n{MODEL_INSCRIERE}", view=TicketControlView())
         await interaction.response.send_message(f"Ticket-ul tău a fost creat: {channel.mention}", ephemeral=True)
 
-# ================= COMENZI UNIFICATE (Cu restricție de Rol) =================
+# ================= COMENZI STAFF (Cu restricție de Rol) =================
 
 @bot.command()
 async def setup_inscrieri(ctx):
