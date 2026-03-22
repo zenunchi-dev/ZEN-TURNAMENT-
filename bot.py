@@ -26,7 +26,7 @@ bot = commands.Bot(command_prefix="#", intents=intents)
 
 # === ID-URI TICKET & ROLURI ===
 TICKET_CATEGORY_ID      = 1481418592217206885
-STAFF_ROLE_ID           = 1466541122636611759 # Rolul autorizat pentru comenzi
+STAFF_ROLE_ID           = 1466541122636611759 
 ACCEPT_ROLE_ID          = 1484534027342974976
 REJECT_ROLE_ID          = 1481789988654940272
 
@@ -35,10 +35,9 @@ CHANNEL_BRACKET_ID = 1481418744956850392
 IMAGE_URL = "https://cdn.discordapp.com/attachments/1481418744956850392/1485083252065570917/file_00000000a92c720aaca2f08e5e197849.png?ex=69c0930e&is=69bf418e&hm=7f1202378fea409ea82d2639aa811eda500b535128bf529a51dc126d29db74c9&"
 FONT_URL = "https://github.com/googlefonts/rajdhani/raw/main/fonts/Rajdhani-Bold.ttf"
 
-# Variabilă globală pentru a reține ID-ul ultimului mesaj cu tabela
 last_bracket_message_id = None
 
-# Coordonate ajustate pentru a acoperi textul "Echipa X" de pe imagine
+# Coordonate și dimensiuni zone de acoperire (Centru X, Centru Y)
 positions = {
     "A1": (132, 245), "A2": (132, 335), "A3": (132, 492), "A4": (132, 582),
     "B1": (868, 245), "B2": (868, 335), "B3": (868, 492), "B4": (868, 582),
@@ -73,15 +72,24 @@ async def generate_bracket_image():
             img_data = await resp.read()
             img = Image.open(io.BytesIO(img_data)).convert("RGBA")
         async with session.get(FONT_URL) as resp_font:
-            font = ImageFont.truetype(io.BytesIO(await resp_font.read()), 22) if resp_font.status == 200 else ImageFont.load_default()
+            # Am mărit fontul la 28 pentru a fi "la fel de mare"
+            font = ImageFont.truetype(io.BytesIO(await resp_font.read()), 28) if resp_font.status == 200 else ImageFont.load_default()
 
     draw = ImageDraw.Draw(img)
+    
     for slot, team in bracket_data.items():
         if team:
+            x, y = positions[slot]
+            # 1. Desenăm un dreptunghi alb pentru a "șterge" textul original (Echipa A1, etc.)
+            # Dimensiunea dreptunghiului este adaptată zonei de text din imagine
+            left, top, right, bottom = x - 55, y - 15, x + 55, y + 15
+            draw.rectangle([left, top, right, bottom], fill="#F8F8F8") # Culoarea fundalului din imagine
+            
+            # 2. Scriem noul nume de echipă
             text = str(team).upper()
             bbox = draw.textbbox((0, 0), text, font=font)
             w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
-            draw.text((positions[slot][0] - w//2, positions[slot][1] - h//2), text, fill="black", font=font)
+            draw.text((x - w//2, y - h//2 - 2), text, fill="black", font=font)
 
     output = io.BytesIO()
     img.save(output, format="PNG")
@@ -93,7 +101,6 @@ async def send_updated_bracket(ctx):
     channel = bot.get_channel(CHANNEL_BRACKET_ID)
     if not channel: return
 
-    # Șterge mesajul anterior dacă există
     if last_bracket_message_id:
         try:
             old_msg = await channel.fetch_message(last_bracket_message_id)
@@ -105,7 +112,6 @@ async def send_updated_bracket(ctx):
         new_msg = await channel.send(file=discord.File(file_data, "bracket.png"))
         last_bracket_message_id = new_msg.id
     
-    # Șterge comanda utilizatorului pentru curățenie
     try: await ctx.message.delete()
     except: pass
 
@@ -165,30 +171,25 @@ class InscriereButtonView(discord.ui.View):
         await channel.send(f"{interaction.user.mention}\n\n{MODEL_INSCRIERE}", view=TicketControlView())
         await interaction.response.send_message(f"Ticket-ul tău a fost creat: {channel.mention}", ephemeral=True)
 
-# ================= COMENZI STAFF (Cu restricție de Rol) =================
+# ================= COMENZI STAFF =================
 
 @bot.command()
 async def setup_inscrieri(ctx):
-    if not any(r.id == STAFF_ROLE_ID for r in ctx.author.roles):
-        return await ctx.send("Nu ai permisiunea necesară!", delete_after=5)
-    embed = discord.Embed(title="ZEN Tournament 2v2", description="Apasă butonul🏆 pentru a te înscrie în turneu.", color=0x00ff00)
+    if not any(r.id == STAFF_ROLE_ID for r in ctx.author.roles): return
+    embed = discord.Embed(title="ZEN Tournament 2v2", description="Apasă butonul🏆 pentru a te înscrie.", color=0x00ff00)
     await ctx.send(embed=embed, view=InscriereButtonView())
 
 @bot.command()
 async def set(ctx, slot: str, *, name: str):
-    if not any(r.id == STAFF_ROLE_ID for r in ctx.author.roles):
-        return await ctx.send("Nu ai permisiunea necesară!", delete_after=5)
+    if not any(r.id == STAFF_ROLE_ID for r in ctx.author.roles): return
     slot = slot.upper()
     if slot in positions:
         bracket_data[slot] = name
         await send_updated_bracket(ctx)
-    else:
-        await ctx.send("❌ Slot invalid!", delete_after=5)
 
 @bot.command()
 async def win(ctx, slot: str):
-    if not any(r.id == STAFF_ROLE_ID for r in ctx.author.roles):
-        return await ctx.send("Nu ai permisiunea necesară!", delete_after=5)
+    if not any(r.id == STAFF_ROLE_ID for r in ctx.author.roles): return
     slot = slot.upper()
     mapping = {
         "A1":"SW1", "A2":"SW1", "A3":"SW2", "A4":"SW2",
@@ -196,16 +197,12 @@ async def win(ctx, slot: str):
         "SW1":"F1", "SW2":"F1", "SW3":"F2", "SW4":"F2"
     }
     if slot in bracket_data and bracket_data[slot] and slot in mapping:
-        target = mapping[slot]
-        bracket_data[target] = bracket_data[slot]
+        bracket_data[mapping[slot]] = bracket_data[slot]
         await send_updated_bracket(ctx)
-    else:
-        await ctx.send("❌ Slot invalid sau gol!", delete_after=5)
 
 @bot.command()
 async def reset(ctx):
-    if not any(r.id == STAFF_ROLE_ID for r in ctx.author.roles):
-        return await ctx.send("Nu ai permisiunea necesară!", delete_after=5)
+    if not any(r.id == STAFF_ROLE_ID for r in ctx.author.roles): return
     global bracket_data
     bracket_data = {slot: "" for slot in positions.keys()}
     await send_updated_bracket(ctx)
