@@ -37,7 +37,7 @@ FONT_URL = "https://github.com/googlefonts/rajdhani/raw/main/fonts/Rajdhani-Bold
 
 last_bracket_message_id = None
 
-# Coordonate și dimensiuni zone de acoperire (Centru X, Centru Y)
+# Coordonate (Centru X, Centru Y)
 positions = {
     "A1": (132, 245), "A2": (132, 335), "A3": (132, 492), "A4": (132, 582),
     "B1": (868, 245), "B2": (868, 335), "B3": (868, 492), "B4": (868, 582),
@@ -72,24 +72,26 @@ async def generate_bracket_image():
             img_data = await resp.read()
             img = Image.open(io.BytesIO(img_data)).convert("RGBA")
         async with session.get(FONT_URL) as resp_font:
-            # Am mărit fontul la 28 pentru a fi "la fel de mare"
-            font = ImageFont.truetype(io.BytesIO(await resp_font.read()), 28) if resp_font.status == 200 else ImageFont.load_default()
+            # --- FONT MĂRIT LA 30 ---
+            font = ImageFont.truetype(io.BytesIO(await resp_font.read()), 30) if resp_font.status == 200 else ImageFont.load_default()
 
     draw = ImageDraw.Draw(img)
     
     for slot, team in bracket_data.items():
         if team:
             x, y = positions[slot]
-            # 1. Desenăm un dreptunghi alb pentru a "șterge" textul original (Echipa A1, etc.)
-            # Dimensiunea dreptunghiului este adaptată zonei de text din imagine
-            left, top, right, bottom = x - 55, y - 15, x + 55, y + 15
-            draw.rectangle([left, top, right, bottom], fill="#F8F8F8") # Culoarea fundalului din imagine
             
-            # 2. Scriem noul nume de echipă
+            # --- ȘTERGEREA TOTALĂ A TEXTULUI VECHI ---
+            # Desenăm un dreptunghi care să acopere exact căsuța (fundal #F8F8F8)
+            left, top, right, bottom = x - 65, y - 22, x + 65, y + 22
+            draw.rectangle([left, top, right, bottom], fill="#F8F8F8")
+            
+            # --- SCRIEREA NUMELUI NOU ---
             text = str(team).upper()
             bbox = draw.textbbox((0, 0), text, font=font)
             w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
-            draw.text((x - w//2, y - h//2 - 2), text, fill="black", font=font)
+            # Centrare în căsuță
+            draw.text((x - w//2, y - h//2 - 3), text, fill="black", font=font)
 
     output = io.BytesIO()
     img.save(output, format="PNG")
@@ -124,60 +126,42 @@ class TicketControlView(discord.ui.View):
         if not any(r.id == STAFF_ROLE_ID for r in interaction.user.roles):
             return await interaction.response.send_message("Doar staff-ul poate folosi acest buton!", ephemeral=True)
         user_id = interaction.channel.topic
-        if not user_id: return
         member = interaction.guild.get_member(int(user_id))
         rol = interaction.guild.get_role(ACCEPT_ROLE_ID)
         if rol and member:
             await member.add_roles(rol)
-            await interaction.response.send_message(f"{interaction.user.mention} a **acceptat** participantul {member.mention}! Rol acordat.")
-        await interaction.response.defer()
-
-    @discord.ui.button(label="REJECTAT", style=discord.ButtonStyle.danger, emoji="❌", custom_id="zen_reject_ticket")
-    async def reject(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not any(r.id == STAFF_ROLE_ID for r in interaction.user.roles):
-            return await interaction.response.send_message("Doar staff-ul poate folosi acest buton!", ephemeral=True)
-        user_id = interaction.channel.topic
-        if not user_id: return
-        member = interaction.guild.get_member(int(user_id))
-        rol = interaction.guild.get_role(REJECT_ROLE_ID)
-        if rol and member:
-            await member.add_roles(rol)
-            await interaction.response.send_message(f"{interaction.user.mention} a **respins** participantul {member.mention}! Rol acordat.")
+            await interaction.response.send_message(f"✅ {interaction.user.mention} a acceptat echipa {member.mention}!")
         await interaction.response.defer()
 
     @discord.ui.button(label="Închide Ticket", style=discord.ButtonStyle.secondary, emoji="🔒", custom_id="zen_close_ticket")
     async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not any(r.id == STAFF_ROLE_ID for r in interaction.user.roles):
-            return await interaction.response.send_message("Doar staff-ul poate închide ticket-ul!", ephemeral=True)
-        await interaction.response.send_message("Ticket-ul se închide în 5 secunde...")
-        await asyncio.sleep(5)
+            return await interaction.response.send_message("Doar staff-ul poate închide!", ephemeral=True)
+        await interaction.response.send_message("Se închide...")
+        await asyncio.sleep(3)
         await interaction.channel.delete()
 
 class InscriereButtonView(discord.ui.View):
     def __init__(self): super().__init__(timeout=None)
     @discord.ui.button(label="🏆 ÎNSCRIE-TE", style=discord.ButtonStyle.success, emoji="🏆", custom_id="zen_inscriere_2v2")
     async def inscriere(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if any(r.id == REJECT_ROLE_ID for r in interaction.user.roles):
-            return await interaction.response.send_message("Ai fost respins recent și nu poți crea ticket nou.", ephemeral=True)
         guild = interaction.guild
         category = guild.get_channel(TICKET_CATEGORY_ID)
-        if not category: return await interaction.response.send_message("Categoria de tickete nu a fost găsită!", ephemeral=True)
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(view_channel=False),
-            interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True, attach_files=True),
-            guild.get_role(STAFF_ROLE_ID): discord.PermissionOverwrite(view_channel=True, send_messages=True, attach_files=True),
+            interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True),
+            guild.get_role(STAFF_ROLE_ID): discord.PermissionOverwrite(view_channel=True, send_messages=True),
         }
         channel = await guild.create_text_channel(name=f"ticket-{interaction.user.name}", category=category, topic=str(interaction.user.id), overwrites=overwrites)
         await channel.send(f"{interaction.user.mention}\n\n{MODEL_INSCRIERE}", view=TicketControlView())
-        await interaction.response.send_message(f"Ticket-ul tău a fost creat: {channel.mention}", ephemeral=True)
+        await interaction.response.send_message(f"Ticket creat: {channel.mention}", ephemeral=True)
 
 # ================= COMENZI STAFF =================
 
 @bot.command()
 async def setup_inscrieri(ctx):
     if not any(r.id == STAFF_ROLE_ID for r in ctx.author.roles): return
-    embed = discord.Embed(title="ZEN Tournament 2v2", description="Apasă butonul🏆 pentru a te înscrie.", color=0x00ff00)
-    await ctx.send(embed=embed, view=InscriereButtonView())
+    await ctx.send("Panou Înscrieri ZEN", view=InscriereButtonView())
 
 @bot.command()
 async def set(ctx, slot: str, *, name: str):
@@ -191,11 +175,7 @@ async def set(ctx, slot: str, *, name: str):
 async def win(ctx, slot: str):
     if not any(r.id == STAFF_ROLE_ID for r in ctx.author.roles): return
     slot = slot.upper()
-    mapping = {
-        "A1":"SW1", "A2":"SW1", "A3":"SW2", "A4":"SW2",
-        "B1":"SW3", "B2":"SW3", "B3":"SW4", "B4":"SW4",
-        "SW1":"F1", "SW2":"F1", "SW3":"F2", "SW4":"F2"
-    }
+    mapping = {"A1":"SW1", "A2":"SW1", "A3":"SW2", "A4":"SW2", "B1":"SW3", "B2":"SW3", "B3":"SW4", "B4":"SW4", "SW1":"F1", "SW2":"F1", "SW3":"F2", "SW4":"F2"}
     if slot in bracket_data and bracket_data[slot] and slot in mapping:
         bracket_data[mapping[slot]] = bracket_data[slot]
         await send_updated_bracket(ctx)
