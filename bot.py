@@ -26,7 +26,7 @@ bot = commands.Bot(command_prefix="#", intents=intents)
 
 # === ID-URI TICKET & ROLURI ===
 TICKET_CATEGORY_ID      = 1481418592217206885
-STAFF_ROLE_ID           = 1466541122636611759 
+STAFF_ROLE_ID           = 1466541122636611759 # Rolul autorizat pentru comenzi
 ACCEPT_ROLE_ID          = 1484534027342974976
 REJECT_ROLE_ID          = 1481789988654940272
 
@@ -35,9 +35,10 @@ CHANNEL_BRACKET_ID = 1481418744956850392
 IMAGE_URL = "https://cdn.discordapp.com/attachments/1481418744956850392/1485083252065570917/file_00000000a92c720aaca2f08e5e197849.png?ex=69c0930e&is=69bf418e&hm=7f1202378fea409ea82d2639aa811eda500b535128bf529a51dc126d29db74c9&"
 FONT_URL = "https://github.com/googlefonts/rajdhani/raw/main/fonts/Rajdhani-Bold.ttf"
 
+# Variabilă globală pentru a reține ID-ul ultimului mesaj cu tabela
 last_bracket_message_id = None
 
-# Coordonate (Centru X, Centru Y)
+# Coordonate ajustate pentru a acoperi textul "Echipa X" de pe imagine
 positions = {
     "A1": (132, 245), "A2": (132, 335), "A3": (132, 492), "A4": (132, 582),
     "B1": (868, 245), "B2": (868, 335), "B3": (868, 492), "B4": (868, 582),
@@ -72,26 +73,24 @@ async def generate_bracket_image():
             img_data = await resp.read()
             img = Image.open(io.BytesIO(img_data)).convert("RGBA")
         async with session.get(FONT_URL) as resp_font:
-            # --- FONT MĂRIT LA 30 ---
-            font = ImageFont.truetype(io.BytesIO(await resp_font.read()), 30) if resp_font.status == 200 else ImageFont.load_default()
+            # MODIFICARE: Font mărit la 45
+            font = ImageFont.truetype(io.BytesIO(await resp_font.read()), 45) if resp_font.status == 200 else ImageFont.load_default()
 
     draw = ImageDraw.Draw(img)
-    
     for slot, team in bracket_data.items():
         if team:
             x, y = positions[slot]
             
-            # --- ȘTERGEREA TOTALĂ A TEXTULUI VECHI ---
-            # Desenăm un dreptunghi care să acopere exact căsuța (fundal #F8F8F8)
-            left, top, right, bottom = x - 65, y - 22, x + 65, y + 22
+            # MODIFICARE: Ștergem conținutul căsuței cu un dreptunghi de culoarea fundalului
+            # Aceasta elimină textul "Echipa X" original
+            left, top, right, bottom = x - 75, y - 28, x + 75, y + 28
             draw.rectangle([left, top, right, bottom], fill="#F8F8F8")
-            
-            # --- SCRIEREA NUMELUI NOU ---
+
+            # MODIFICARE: Scriem numele nou, centrat, cu fontul de 45
             text = str(team).upper()
             bbox = draw.textbbox((0, 0), text, font=font)
             w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
-            # Centrare în căsuță
-            draw.text((x - w//2, y - h//2 - 3), text, fill="black", font=font)
+            draw.text((x - w//2, y - h//2 - 5), text, fill="black", font=font)
 
     output = io.BytesIO()
     img.save(output, format="PNG")
@@ -103,6 +102,7 @@ async def send_updated_bracket(ctx):
     channel = bot.get_channel(CHANNEL_BRACKET_ID)
     if not channel: return
 
+    # Șterge mesajul anterior dacă există
     if last_bracket_message_id:
         try:
             old_msg = await channel.fetch_message(last_bracket_message_id)
@@ -114,6 +114,7 @@ async def send_updated_bracket(ctx):
         new_msg = await channel.send(file=discord.File(file_data, "bracket.png"))
         last_bracket_message_id = new_msg.id
     
+    # Șterge comanda utilizatorului pentru curățenie
     try: await ctx.message.delete()
     except: pass
 
@@ -126,63 +127,94 @@ class TicketControlView(discord.ui.View):
         if not any(r.id == STAFF_ROLE_ID for r in interaction.user.roles):
             return await interaction.response.send_message("Doar staff-ul poate folosi acest buton!", ephemeral=True)
         user_id = interaction.channel.topic
+        if not user_id: return
         member = interaction.guild.get_member(int(user_id))
         rol = interaction.guild.get_role(ACCEPT_ROLE_ID)
         if rol and member:
             await member.add_roles(rol)
-            await interaction.response.send_message(f"✅ {interaction.user.mention} a acceptat echipa {member.mention}!")
+            await interaction.response.send_message(f"{interaction.user.mention} a **acceptat** participantul {member.mention}! Rol acordat.")
+        await interaction.response.defer()
+
+    @discord.ui.button(label="REJECTAT", style=discord.ButtonStyle.danger, emoji="❌", custom_id="zen_reject_ticket")
+    async def reject(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not any(r.id == STAFF_ROLE_ID for r in interaction.user.roles):
+            return await interaction.response.send_message("Doar staff-ul poate folosi acest buton!", ephemeral=True)
+        user_id = interaction.channel.topic
+        if not user_id: return
+        member = interaction.guild.get_member(int(user_id))
+        rol = interaction.guild.get_role(REJECT_ROLE_ID)
+        if rol and member:
+            await member.add_roles(rol)
+            await interaction.response.send_message(f"{interaction.user.mention} a **respins** participantul {member.mention}! Rol acordat.")
         await interaction.response.defer()
 
     @discord.ui.button(label="Închide Ticket", style=discord.ButtonStyle.secondary, emoji="🔒", custom_id="zen_close_ticket")
     async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not any(r.id == STAFF_ROLE_ID for r in interaction.user.roles):
-            return await interaction.response.send_message("Doar staff-ul poate închide!", ephemeral=True)
-        await interaction.response.send_message("Se închide...")
-        await asyncio.sleep(3)
+            return await interaction.response.send_message("Doar staff-ul poate închide ticket-ul!", ephemeral=True)
+        await interaction.response.send_message("Ticket-ul se închide în 5 secunde...")
+        await asyncio.sleep(5)
         await interaction.channel.delete()
 
 class InscriereButtonView(discord.ui.View):
     def __init__(self): super().__init__(timeout=None)
     @discord.ui.button(label="🏆 ÎNSCRIE-TE", style=discord.ButtonStyle.success, emoji="🏆", custom_id="zen_inscriere_2v2")
     async def inscriere(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if any(r.id == REJECT_ROLE_ID for r in interaction.user.roles):
+            return await interaction.response.send_message("Ai fost respins recent și nu poți crea ticket nou.", ephemeral=True)
         guild = interaction.guild
         category = guild.get_channel(TICKET_CATEGORY_ID)
+        if not category: return await interaction.response.send_message("Categoria de tickete nu a fost găsită!", ephemeral=True)
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(view_channel=False),
-            interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True),
-            guild.get_role(STAFF_ROLE_ID): discord.PermissionOverwrite(view_channel=True, send_messages=True),
+            interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True, attach_files=True),
+            guild.get_role(STAFF_ROLE_ID): discord.PermissionOverwrite(view_channel=True, send_messages=True, attach_files=True),
         }
         channel = await guild.create_text_channel(name=f"ticket-{interaction.user.name}", category=category, topic=str(interaction.user.id), overwrites=overwrites)
         await channel.send(f"{interaction.user.mention}\n\n{MODEL_INSCRIERE}", view=TicketControlView())
-        await interaction.response.send_message(f"Ticket creat: {channel.mention}", ephemeral=True)
+        await interaction.response.send_message(f"Ticket-ul tău a fost creat: {channel.mention}", ephemeral=True)
 
-# ================= COMENZI STAFF =================
+# ================= COMENZI STAFF (Cu restricție de Rol) =================
 
 @bot.command()
 async def setup_inscrieri(ctx):
-    if not any(r.id == STAFF_ROLE_ID for r in ctx.author.roles): return
-    await ctx.send("Panou Înscrieri ZEN", view=InscriereButtonView())
+    if not any(r.id == STAFF_ROLE_ID for r in ctx.author.roles):
+        return await ctx.send("Nu ai permisiunea necesară!", delete_after=5)
+    embed = discord.Embed(title="ZEN Tournament 2v2", description="Apasă butonul🏆 pentru a te înscrie în turneu.", color=0x00ff00)
+    await ctx.send(embed=embed, view=InscriereButtonView())
 
 @bot.command()
 async def set(ctx, slot: str, *, name: str):
-    if not any(r.id == STAFF_ROLE_ID for r in ctx.author.roles): return
+    if not any(r.id == STAFF_ROLE_ID for r in ctx.author.roles):
+        return await ctx.send("Nu ai permisiunea necesară!", delete_after=5)
     slot = slot.upper()
     if slot in positions:
         bracket_data[slot] = name
         await send_updated_bracket(ctx)
+    else:
+        await ctx.send("❌ Slot invalid!", delete_after=5)
 
 @bot.command()
 async def win(ctx, slot: str):
-    if not any(r.id == STAFF_ROLE_ID for r in ctx.author.roles): return
+    if not any(r.id == STAFF_ROLE_ID for r in ctx.author.roles):
+        return await ctx.send("Nu ai permisiunea necesară!", delete_after=5)
     slot = slot.upper()
-    mapping = {"A1":"SW1", "A2":"SW1", "A3":"SW2", "A4":"SW2", "B1":"SW3", "B2":"SW3", "B3":"SW4", "B4":"SW4", "SW1":"F1", "SW2":"F1", "SW3":"F2", "SW4":"F2"}
+    mapping = {
+        "A1":"SW1", "A2":"SW1", "A3":"SW2", "A4":"SW2",
+        "B1":"SW3", "B2":"SW3", "B3":"SW4", "B4":"SW4",
+        "SW1":"F1", "SW2":"F1", "SW3":"F2", "SW4":"F2"
+    }
     if slot in bracket_data and bracket_data[slot] and slot in mapping:
-        bracket_data[mapping[slot]] = bracket_data[slot]
+        target = mapping[slot]
+        bracket_data[target] = bracket_data[slot]
         await send_updated_bracket(ctx)
+    else:
+        await ctx.send("❌ Slot invalid sau gol!", delete_after=5)
 
 @bot.command()
 async def reset(ctx):
-    if not any(r.id == STAFF_ROLE_ID for r in ctx.author.roles): return
+    if not any(r.id == STAFF_ROLE_ID for r in ctx.author.roles):
+        return await ctx.send("Nu ai permisiunea necesară!", delete_after=5)
     global bracket_data
     bracket_data = {slot: "" for slot in positions.keys()}
     await send_updated_bracket(ctx)
