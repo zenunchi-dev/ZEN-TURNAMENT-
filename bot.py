@@ -32,7 +32,7 @@ REJECT_ROLE_ID          = 1481789988654940272
 
 # === CONFIG TABELĂ / BRACKET ===
 CHANNEL_BRACKET_ID = 1481418744956850392 
-IMAGE_URL = "https://cdn.discordapp.com/attachments/1481418744956850392/1485083252065570917/file_00000000a92c720aaca2f08e5e197849.png"
+IMAGE_URL = "https://cdn.discordapp.com/attachments/1481418744956850392/1485083252065570917/file_00000000a92c720aaca2f08e5e197849.png?ex=69c0930e&is=69bf418e&hm=7f1202378fea409ea82d2639aa811eda500b535128bf529a51dc126d29db74c9&"
 FONT_URL = "https://github.com/googlefonts/rajdhani/raw/main/fonts/Rajdhani-Bold.ttf"
 
 # Variabilă globală pentru a reține ID-ul ultimului mesaj cu tabela
