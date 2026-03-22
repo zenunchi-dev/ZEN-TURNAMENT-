@@ -10,11 +10,16 @@ from PIL import Image, ImageDraw, ImageFont
 
 # === SERVER PENTRU RAILWAY (Keep Alive) ===
 app = Flask('')
-@discord.app.route('/')
-def home(): return "Bot Online"
+
+# REPARAT: Am corectat de la @discord.app.route la @app.route
+@app.route('/')
+def home(): 
+    return "Bot Online"
+
 def run():
     port = int(os.getenv("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
+
 def keep_alive():
     t = Thread(target=run)
     t.daemon = True
@@ -37,6 +42,7 @@ FONT_URL = "https://github.com/googlefonts/rajdhani/raw/main/fonts/Rajdhani-Bold
 
 last_bracket_message_id = None
 
+# Coordonate (Centru X, Centru Y)
 positions = {
     "A1": (132, 245), "A2": (132, 335), "A3": (132, 492), "A4": (132, 582),
     "B1": (868, 245), "B2": (868, 335), "B3": (868, 492), "B4": (868, 582),
@@ -71,19 +77,18 @@ async def generate_bracket_image():
             img_data = await resp.read()
             img = Image.open(io.BytesIO(img_data)).convert("RGBA")
         async with session.get(FONT_URL) as resp_font:
-            # S-a modificat mărimea la 45 conform cerinței
             font = ImageFont.truetype(io.BytesIO(await resp_font.read()), 45) if resp_font.status == 200 else ImageFont.load_default()
 
     draw = ImageDraw.Draw(img)
+    
     for slot, team in bracket_data.items():
         if team:
             x, y = positions[slot]
             
-            # RADIERA: Șterge textul "Echipa X" original desenând un dreptunghi de culoarea fundalului
-            left, top, right, bottom = x - 80, y - 30, x + 80, y + 30
+            # REPARAT: Lărgirea dreptunghiului de ștergere pentru a acoperi tot "Echipa B1/B2..."
+            left, top, right, bottom = x - 90, y - 30, x + 90, y + 30
             draw.rectangle([left, top, right, bottom], fill="#F8F8F8")
-
-            # Scrie numele nou cu font de 45, centrat
+            
             text = str(team).upper()
             bbox = draw.textbbox((0, 0), text, font=font)
             w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
